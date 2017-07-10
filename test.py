@@ -44,7 +44,7 @@ class SocketStub(object):
         self.port = 0
 
     def connect(self, address_t):
-        if address_t == "fail":
+        if address_t[0] == "fail":
             raise bluetooth.BluetoothError("TestFail")
 
         address, port = address_t
@@ -65,7 +65,7 @@ class BlueToothWrapperConnectTest(unittest.TestCase):
 
     def test_sucess(self):
         result = self.wrapper.connect(address="some_address")
-        self.assertTrue(result)
+        self.assertTrue(True)
 
     def test_error(self):
         with self.assertRaises(SpheroException):

@@ -1,17 +1,12 @@
 #!/usr/bin/python
 """
-Python module allowing the control of a Sphero 2.0
+Wraps the bluetooth library for easy of use in sphero.
 """
 import re
 import sys
-import threading
 
 import bluetooth
-
-
-class SpheroException(Exception):
-    """ Exception class for the Sphero"""
-    pass
+from spheropy.Sphero import SpheroException
 
 
 class BluetoothWrapper(object):
@@ -50,7 +45,7 @@ class BluetoothWrapper(object):
         if address is not None:
             self.address = address
 
-        if not self._socket is not None:
+        if self._socket is not None:
             self._socket.close()
 
         try:
@@ -88,7 +83,7 @@ class BluetoothWrapper(object):
         """
         recieves data from Sphero, and returns it as a byte string
         @param num_bytes, the number of bytes to request
-        @return a byte string with length less than num_bytes, when sphero is disconnected, and all data is read, the empty string is returned. 
+        @return a byte string with length less than num_bytes, when sphero is disconnected, and all data is read, the empty string is returned.
         Blocks until atleast one byte is available.
         """
         if self._socket is None:
