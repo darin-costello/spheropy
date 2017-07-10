@@ -15,9 +15,9 @@ class BluetoothWrapper(object):
     """
 
     @classmethod
-    def find_free_spheros(cls, tries=5, regex="[Ss]phero"):
+    def find_free_devices(cls, tries=5, regex=".*?"):
         """
-        Finds a list of all available spheros
+        Finds a list of all available devices that match the given regex
         @param tries: indicates the number of times to scan for bluetooth devices
         @param regex: A regex used to match bluetooth device names,
         @return: A dictionary from names to addresses
@@ -32,8 +32,7 @@ class BluetoothWrapper(object):
 
         return result
 
-    def __init__(self, name="Sphero", address=None, port=1):
-        self.name = name
+    def __init__(self, address, port):
         self.address = address
         self.port = port
         self._socket = None
@@ -71,11 +70,7 @@ class BluetoothWrapper(object):
 
         message_len = len(msg)
         while message_len > 0:
-            try:
-                sent_amount = self._socket.send(msg)
-            except bluetooth.BluetoothError as error:
-                raise SpheroException(
-                    "Unable to send all data, due to bluetooth error: " + error.message)
+            sent_amount = self._socket.send(msg)
             message_len -= sent_amount
             msg = msg[sent_amount:]
 

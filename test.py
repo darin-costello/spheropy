@@ -1,6 +1,7 @@
 # pylint: disable=c0111
 import unittest
-from spheropy import BluetoothWrapper, SpheroException
+from spheropy.BluetoothWrapper import BluetoothWrapper
+from spheropy.Sphero import SpheroException
 import bluetooth
 
 
@@ -21,19 +22,19 @@ class FindSpheroTest(unittest.TestCase):
     def test_find_one(self):
         override = OverrideDiscover([(33, "Sphero-YBO")])
         bluetooth.discover_devices = override.call
-        answer = BluetoothWrapper.find_free_spheros()
+        answer = BluetoothWrapper.find_free_devices(regex="[Ss]phero")
         self.assertEqual(answer["Sphero-YBO"], 33)
 
     def test_multi_calls(self):
         override = OverrideDiscover([])
         bluetooth.discover_devices = override.call
-        BluetoothWrapper.find_free_spheros(tries=10)
+        BluetoothWrapper.find_free_devices(regex="[Ss]phero", tries=10)
         self.assertEqual(override.calls, 10)
 
     def test_no_match(self):
         override = OverrideDiscover([(1234, "NOT_A_MATCH")])
         bluetooth.discover_devices = override.call
-        answer = BluetoothWrapper.find_free_spheros()
+        answer = BluetoothWrapper.find_free_devices(regex="[Ss]phero")
         self.assertEqual(len(answer), 0)
 
 
@@ -58,7 +59,7 @@ class SocketStub(object):
 class BlueToothWrapperConnectTest(unittest.TestCase):
     def setUp(self):
         bluetooth.BluetoothSocket = SocketStub
-        self.wrapper = BluetoothWrapper()
+        self.wrapper = BluetoothWrapper("t", 1)
 
     def tearDown(self):
         reload(bluetooth)
