@@ -37,6 +37,10 @@ class BluetoothWrapper(object):
         self.port = port
         self._socket = None
 
+    def is_connected(self):
+        """ returns if the bluetooth has a connection """
+        return self._socket is not None
+
     def connect(self, address=None):
         """
         Connects, attempts to connect to a sphero, address must be set, or given as a keyword argument. If a connection is all ready made it is closed, and a new one is started.
@@ -46,6 +50,7 @@ class BluetoothWrapper(object):
 
         if self._socket is not None:
             self._socket.close()
+            self._socket = None
 
         try:
             self._socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
