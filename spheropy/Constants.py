@@ -1,9 +1,11 @@
+from collections import namedtuple
+
 SOP1_INDEX = 0
 SOP2_INDEX = 1
 DID_INDEX = 2
 MSRP_INDEX = 0
 CID_INDEX = 3
-SEQENCE_INDEX = 1
+SEQENCE_INDEX = 4
 LENGTH_INDEX = 5
 DATA_START = 6
 
@@ -37,3 +39,11 @@ CORE = 0x00
 CORE_COMMANDS = {
     'PING': 0x01
 }
+
+
+Response = namedtuple('Response', ['sucess', 'data'])
+
+
+class SpheroException(Exception):
+    """ Exception class for the Sphero"""
+    pass

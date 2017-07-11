@@ -4,21 +4,16 @@ Tools for controlling a Sphero 2.0
 from __future__ import print_function
 import sys
 
-from collections import namedtuple
-import threading
-from spheropy.BluetoothWrapper import BluetoothWrapper
-from spheropy.Constants import *
 
-Response = namedtuple('Response', ['sucess', 'data'])
+import threading
+from BluetoothWrapper import BluetoothWrapper
+from Constants import *
+# from spheropy.BluetoothWrapper import BluetoothWrapper
+# from spheropy.Constants import *
 
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
-
-
-class SpheroException(Exception):
-    """ Exception class for the Sphero"""
-    pass
 
 
 class Sphero(threading.Thread):
@@ -36,7 +31,7 @@ class Sphero(threading.Thread):
         """
         return BluetoothWrapper.find_free_devices(tries=tries, regex="[Ss]phero")
 
-    def __init__(self, name, address, port=1, response_time_out=5):
+    def __init__(self, name, address, port=1, response_time_out=1):
         super(Sphero, self).__init__()
         self.bluetooth = BluetoothWrapper(address, port)
         self.suppress_exception = False
@@ -89,7 +84,7 @@ class Sphero(threading.Thread):
         array = self._read(length, offset=3)
 
         array[MSRP_INDEX] = msrp
-        array[SEQENCE_INDEX] = seq
+        array[1] = seq
         array[2] = length
         checksum = Sphero._check_sum(array[0:-1])
         if array[-1] != checksum:
@@ -134,10 +129,10 @@ class Sphero(threading.Thread):
         """ assumes did, cid, and data have been set
             Msg lock must be aquired by caller"""
         self._msg[SOP2_INDEX] = ANSWER if response else NO_ANSWER
-        checksum = Sphero._check_sum(
-            self.msg[DATA_START: DATA_START + data_length])
         self._msg[SEQENCE_INDEX] = sequence_num
         self._msg[LENGTH_INDEX] = data_length + 1
+        checksum = Sphero._check_sum(
+            self._msg[DID_INDEX: DATA_START + data_length])
         self._msg[DATA_START + data_length] = checksum
         self.bluetooth.send(buffer(self._msg[0: DATA_START + data_length + 1]))
         return

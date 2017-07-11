@@ -6,7 +6,7 @@ import re
 import sys
 
 import bluetooth
-from spheropy.Sphero import SpheroException
+from Constants import SpheroException
 
 
 class BluetoothWrapper(object):
