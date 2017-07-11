@@ -1,0 +1,6 @@
+Python driver for Sphero..
+
+Alpha stage, not everythin is working
+
+features:
+Can send ping (no reply)
