@@ -192,6 +192,7 @@ class Sphero(threading.Thread):
             tries += 1
             success = reply.success
         return reply
+# CORE COMMANDS
 
     def ping(self, response=True):
         """
@@ -201,6 +202,34 @@ class Sphero(threading.Thread):
         """
         reply = self._send(CORE, CORE_COMMANDS['PING'], [], response)
         return reply
+
+    def get_versioning(self):
+        """
+        Not implemented
+        """
+        # TODO
+        raise SpheroException("NOT IMPLEMENTED")
+
+    def set_device_name(self, response=False):
+        """
+        not_implemented
+        This assigned name is held internally and produced as part of the Get Bluetooth Info
+        service below. Names are clipped at 48 characters in length to support UTF-8 sequences; you can send
+        something longer but the extra will be discarded. This field defaults to the Bluetooth advertising name.
+        """
+        # TODO
+        raise SpheroException("NOT IMPLEMENTED")
+
+    def get_bluetooth_info(self):
+        """
+        not implemented
+        This returns a structure containing the textual name in ASCII of the ball (defaults to the Bluetooth
+        advertising name but can be changed), the Bluetooth address in ASCII and the ID colors the ball blinks
+        when not connected to a smartphone.
+        The ASCII name field is padded with zeros to its maximum siz
+        """
+        # TODO
+        raise SpheroException("NOT IMPLEMENTED")
 
     def get_power_state(self):
         """
@@ -213,6 +242,7 @@ class Sphero(threading.Thread):
         other wise it returns None
         function will try 'number_tries' times to get a response, and will wait up to 'response_time_out 'seconds for each response. thus it may block for up to 'response_time_out X number_tries' seconds
         """
+        # TODO
         reply = self._stable_send(
             CORE, CORE_COMMANDS['GET POWER STATE'], [], True)
         if reply.success:
@@ -223,7 +253,8 @@ class Sphero(threading.Thread):
 
     def set_power_notification(self, setting, response=False):
         """ WARNING asnyc messages not implemetned"""
-        assert(False)
+        # TODO
+        raise SpheroException("NOT IMPLEMENTED")
         flag = 0x01 if setting else 0x00
         reply = self._send(
             CORE, CORE_COMMANDS['SET POWER NOTIFICATION'], [flag], response)
@@ -245,6 +276,30 @@ class Sphero(threading.Thread):
 
         return reply
 
+    def get_voltage_trip_points(self):
+        """
+        not implemented
+        This returns the voltage trip points for what Sphero considers Low battery and Critical battery. The
+        values are expressed in 100ths of a volt, so the defaults of 7.00V and 6.50V respectively are returned as
+        700 and 650.
+        """
+        # TODO
+        raise SpheroException("NOT IMPLEMENTED")
+
+    def set_voltage_trip_points(self, low, critical, response=False):
+        """
+        not implemented
+        This assigns the voltage trip points for Low and Critical battery voltages. The values are specified in
+        100ths of a volt and the limitations on adjusting these away from their defaults are:
+        Vlow must be in the range 675 to 725 (+=25)
+        Vcrit must be in the range 625 to 675 (+=25)
+        There must be 0.25V of separation between the two values
+        Shifting these values too low could result in very little warning before Sphero forces himself to sleep,
+        depending on the age and history of the battery pack. So be careful.
+        """
+        # TODO
+        raise SpheroException("NOT IMPLEMENTED")
+
     def set_inactivity_timeout(self, timeout, response=False):
         """
         Sets inactivity time out. Value must be greater than 60 seconds
@@ -259,6 +314,14 @@ class Sphero(threading.Thread):
 
         return reply
 
+    def l1_diag(self):
+        # TODO
+        raise SpheroException("NOT IMPLEMENTED")
+
+    def l2_diag(self):
+        # TODO
+        raise SpheroException("NOT IMPLEMENTED")
+
     def poll_packet_times(self):
         """
         Command to help profile latencies
@@ -266,6 +329,7 @@ class Sphero(threading.Thread):
         offset : the maximum-likelihood time offset of the Client clock to sphero's system clock
         delay: round-trip delay between client a sphero
         """
+        # TODO time 1 gets mangled.
         time1 = int(round(time.time() * 1000))
         print(time1 & 0xffffffff)
         bit1 = (time1 & 0xff000000) >> 24
@@ -286,5 +350,72 @@ class Sphero(threading.Thread):
                 (sphero_time[2] - sphero_time[1])
             return PacketTime(offset, delay)
 
+# SPHERO COMMANDS
+
+    def set_heading(self, heading, response=False):
+        """
+        Sets the spheros heading in degrees,
+        heading must range between 0 to 359
+        """
+        if heading < 0 or heading > 359:
+            return Response(False, "heading must be between 0 and 359")
+
+        heading_bytes = Sphero._int_to_bytes(heading, 2)
+        reply = self._send(
+            SPHERO, SPHERO_COMMANDS['SET HEADING'], heading_bytes, response)
+        return reply
+
+    def set_stabillization(self, stablize, response=False):
+        """
+        This turns on or off the internal stabilization of Sphero, in which the IMU is used to match the ball's
+        orientation to its various set points.
+        An error is returned if the sensor network is dead; without sensors the IMU won't operate and thus
+        there is no feedback to control stabilization.
+        """
+        flag = 0x01 if stablize else 0x00
+        return self._send(SPHERO, SPHERO_COMMANDS['SET STABILIZATION'], [flag], response)
+
+    def set_rotation_rate(self, rate, response=False):
+        """
+        sets teh roation rate sphero will use to meet new heading commands
+        Lower value offers better control, with a larger turning radius
+        rate should be in degrees/sec, above 199 the maxium value is used(400 degrees/sec)
+        """
+        # TODO returns unknwon command
+        if rate < 0:
+            return Response(False, "USE POSITIVE RATE ONLY")
+        if rate > 199:
+            rate = 200
+        else:
+            rate = int(rate / 0.784)
+        to_bytes = self._int_to_bytes(rate, 1)
+        return self._send(SPHERO, SPHERO_COMMANDS['SET ROTATION RATE'], to_bytes, response)
+
+    def get_chassis_id(self):
+        """
+        Returns the Chassis ID,
+        """
+        response = self._send(
+            SPHERO, SPHERO_COMMANDS['GET CHASSIS ID'], [], True)
+
+        if response.success:
+            tup = struct.unpack_from('>H', buffer(response.data))
+            return Response(True, tup[0])
+        else:
+            return response
+
+    def self_level(self, angle_limit=0, timeout=0, ture_time=0, sleep=False):
+        # TODO
+        raise SpheroException("NOT IMPLEMENTED")
+
     def run(self):
         self._recieve_loop()
+
+    @staticmethod
+    def _int_to_bytes(number, length):
+        number = int(number)
+        result = []
+        for i in range(0, length):
+            result.append((number >> (i * 8)) & 0xff)
+        result.reverse()
+        return result
