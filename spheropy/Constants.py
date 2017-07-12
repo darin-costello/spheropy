@@ -37,11 +37,19 @@ ACKNOWLEDGMENT = 0xff
 ASYNC = 0xfe
 CORE = 0x00
 CORE_COMMANDS = {
-    'PING': 0x01
+    'PING': 0x01,
+    'GET POWER STATE': 0x20,
+    'SET POWER NOTIFICATION': 0x21,
+    'SLEEP': 0x22,
+    'SET INACT TIMEOUT': 0x25,
+    'POLL PACKET TIMES': 0x51
 }
 
 
-Response = namedtuple('Response', ['sucess', 'data'])
+Response = namedtuple('Response', ['success', 'data'])
+PowerState = namedtuple('PowerState', [
+                        'recVer', 'power_state', 'batt_voltage', 'num_charges', 'time_since_chg'])
+PacketTime = namedtuple('PacketTime', ['offset', 'delay'])
 
 
 class SpheroException(Exception):
