@@ -365,7 +365,7 @@ class Sphero(threading.Thread):
             SPHERO, SPHERO_COMMANDS['SET HEADING'], heading_bytes, response)
         return reply
 
-    def set_stabillization(self, stablize, response=False):
+    def set_stabilization(self, stablize, response=False):
         """
         This turns on or off the internal stabilization of Sphero, in which the IMU is used to match the ball's
         orientation to its various set points.
@@ -408,6 +408,114 @@ class Sphero(threading.Thread):
         # TODO
         raise SpheroException("NOT IMPLEMENTED")
 
+    def set_data_stream(self):
+        # TODO
+        raise SpheroException("NOT IMPLEMENTED")
+
+    def set_color(self, red, green, blue, default=False, response=False):
+        """
+        Sets the color of ther sphero given rgb conbonants between 0 and 255, if default is true, sphero will default to that color when first connected
+        """
+
+        red = self._int_to_bytes(red, 1)
+        blue = self._int_to_bytes(blue, 1)
+        green = self._int_to_bytes(green, 1)
+        flag = [0x01] if default else [0x00]
+        return self._send(
+            SPHERO, SPHERO_COMMANDS['SET COLOR'], red + green + blue + flag, response)
+
+    def set_back_light(self, brightness, response=False):
+        """
+        Controls the brightness of the back LED, non persistant
+        """
+        brightness = self._int_to_bytes(brightness, 1)
+        return self._send(
+            SPHERO, SPHERO_COMMANDS['SET BACKLIGHT'], brightness, response)
+
+    def get_color(self):
+        """
+        returns the default sphero color, may not be the current color shown
+        """
+        response = self._send(SPHERO, SPHERO_COMMANDS['GET COLOR'], [], True)
+        if response.success:
+            parse = struct.unpack_from('>BBB', buffer(response.data))
+            return Response(True, Color._make(parse))
+        else:
+            return response
+
+    def roll(self, speed, heading, fast_rotate=False, response=False):
+        go = [0x02] if fast_rotate else [0x01]
+        speed = self._int_to_bytes(speed, 1)
+        heading = self._int_to_bytes(heading, 2)
+        return self._send(SPHERO, SPHERO_COMMANDS['ROLL'], speed + heading + go, response)
+
+    def stop(self, response=False):
+        return self._send(SPHERO, SPHERO_COMMANDS['ROLL'], [0, 0, 0, 0], response)
+
+    def boost(self, on, response=True):
+        on = 0x01 if on else 0x00
+        return self._send(SPHERO, SPHERO_COMMANDS['BOOST'], [on], response)
+
+    def set_raw_motor_values(self, left_value, right_value, response=False):
+        lmode = left_value.mode.value
+        lpower = left_value.power
+        rmode = right_value.mode.value
+        rpower = right_value.power
+        if Sphero._outside_range(lpower, 0, 255) or Sphero._outside_range(rpower, 0, 255):
+            raise SpheroException("Values outside of range")
+        return self._send(SPHERO, SPHERO_COMMANDS['SET RAW MOTOR'], [lmode, lpower, rmode, rpower], response)
+
+    def set_motion_timeout(self, timeout, response=False):
+        """
+        This sets the ultimate timeout for the last motion command to keep Sphero from rolling away
+        timeout is in miliseconds and defaults to 2000
+        must be set in permanent option flags
+        """
+        if self._outside_range(timeout, 0, 0xFFFF):
+            raise SpheroException("Timeout outside of valid range")
+        return self._send(SPHERO, SPHERO_COMMANDS['MOTION TIMEOUT'], self._int_to_bytes(timeout, 2), response)
+
+    def set_permanent_options(self, options, response=False):
+        """
+        Set Options, for option information see PermanentOptionFlag docs. Options persist across power cycles
+        @Param a permanentOption Object
+        """
+        return self._send(SPHERO, SPHERO_COMMANDS['SET PERM OPTIONS'], self._int_to_bytes(options.bitflags, 8), response)
+
+    def get_permanent_options(self):
+        """
+        returns a teh Permenent Options of teh sphero
+        """
+        result = self._send(
+            SPHERO, SPHERO_COMMANDS['GET PERM OPTIONS'], [], True)
+        if result.success:
+            settings = struct.unpack_from('>Q', buffer(result.data))
+            options = PermanentOptions()
+            options.bitflags = settings[0]
+            return Response(True, options)
+        else:
+            return result
+
+    def set_stop_on_disconnect(self, value=True, response=False):
+        """
+        Sets sphero to stop on disconnect, this is a one_shot, so it must be reset on reconnect
+        set value to false to turn off behavior
+        """
+        value = 1 if value else 0
+        return self._send(SPHERO, SPHERO_COMMANDS['SET TEMP OPTIONS'], [
+            0, 0, 0, value], response)
+
+    def will_stop_on_disconnect(self):
+        """
+        returns if the sphero will stop when it is disconnected
+        """
+        result = self._send(
+            SPHERO, SPHERO_COMMANDS['GET TEMP OPTOINS'], [], True)
+        if result.success:
+            return Response(True, bool(result.data))
+        else:
+            return result
+
     def run(self):
         self._recieve_loop()
 
@@ -419,3 +527,7 @@ class Sphero(threading.Thread):
             result.append((number >> (i * 8)) & 0xff)
         result.reverse()
         return result
+
+    @staticmethod
+    def _outside_range(number, min_range, max_range):
+        return number < min_range or number > max_range
