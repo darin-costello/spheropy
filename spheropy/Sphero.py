@@ -9,6 +9,7 @@ import threading
 import struct
 from spheropy.BluetoothWrapper import BluetoothWrapper
 from spheropy.Constants import *
+from spheropy.DataStream import DataStreamManager
 
 
 def eprint(*args, **kwargs):
@@ -17,6 +18,7 @@ def eprint(*args, **kwargs):
 
 class Sphero(threading.Thread):
     """ class representing a sphero """
+# Static Methods
     @staticmethod
     def _check_sum(data):
         """ calculates the checksum as The modulo 256 sum of all the bytes bit inverted (1's complement)
@@ -30,6 +32,20 @@ class Sphero(threading.Thread):
         """
         return BluetoothWrapper.find_free_devices(tries=tries, regex="[Ss]phero")
 
+    @staticmethod
+    def _int_to_bytes(number, length):
+        number = int(number)
+        result = []
+        for i in range(0, length):
+            result.append((number >> (i * 8)) & 0xff)
+        result.reverse()
+        return result
+
+    @staticmethod
+    def _outside_range(number, min_range, max_range):
+        return number < min_range or number > max_range
+
+# Working
     def __init__(self, name, address, port=1, response_time_out=1, number_tries=5):
         super(Sphero, self).__init__()
         self.bluetooth = BluetoothWrapper(address, port)
@@ -45,6 +61,19 @@ class Sphero(threading.Thread):
         self._response_event_lookup = {}
         self._responses = {}
         self._response_time_out = response_time_out
+
+        self._data_stream = DataStreamManager()
+        self._asyn_func = {
+            # 0x01: self._power_notification,
+            # 0x02: self._foward_L1_diag,
+            0x03: self._sensor_data,
+            # 0x07: self._collision_detect,
+            # 0x0B: self._self_level_result,
+            # 0x0C: self._gyro_exceeded
+        }
+
+        self._sensor_callback = self._nothing
+        self._power_callback = self._nothing
 
     def __enter__(self):
         connected = False
@@ -118,12 +147,28 @@ class Sphero(threading.Thread):
             event.set()
 
     def _handle_async(self):
-        # TODO, this is a stup, actual parsing will be needed
-        self.bluetooth.receive(1)
+        # TODO, this is a stub, actual parsing will be needed
+        id_code = ord(self.bluetooth.receive(1))
         length_msb = ord(self.bluetooth.receive(1))
         length_lsb = ord(self.bluetooth.receive(1))
-        length = length_msb << 8 + length_lsb
-        self._read(length)
+        length = (length_msb << 8) + length_lsb
+
+        array = self._read(length, offset=3)
+
+        array[0] = id_code
+        array[1] = length_msb
+        array[2] = length_lsb
+        checksum = Sphero._check_sum(array[0:-1])
+        if array[-1] != checksum:
+            eprint("Malfromed Packet, recieved: {0} expected: {1}".format(
+                array[-1], checksum))
+            return
+        else:
+            data = array[3:-1]
+            tocall = self._asyn_func.get(id_code, self._nothing)
+            thread = threading.Thread(target=tocall, args=(data,))
+            thread.start()
+            return
 
     def _read(self, length, offset=0):
         array = bytearray(offset)
@@ -408,9 +453,14 @@ class Sphero(threading.Thread):
         # TODO
         raise SpheroException("NOT IMPLEMENTED")
 
-    def set_data_stream(self):
-        # TODO
-        raise SpheroException("NOT IMPLEMENTED")
+    def set_data_stream(self, stream_settings, frequency, packet_count=0, response=False):
+
+        self._data_stream = stream_settings.copy()
+        divisor = int(400.0 / frequency)
+        samples = self._data_stream.number_frames
+        data = self._int_to_bytes(divisor, 2) + self._int_to_bytes(samples, 2) + self._int_to_bytes(
+            self._data_stream.mask1, 4) + [packet_count] + self._int_to_bytes(self._data_stream.mask2, 4)
+        return self._send(SPHERO, SPHERO_COMMANDS['SET DATA STRM'], data, response)
 
     def set_color(self, red, green, blue, default=False, response=False):
         """
@@ -515,19 +565,29 @@ class Sphero(threading.Thread):
             return Response(True, bool(result.data))
         else:
             return result
+# ASYNC
+
+    def register_sensor_callback(self, func):
+        assert(callable(func))
+        self._sensor_callback = func
+
+    def register_power_callback(self, func):
+        assert(callable(func))
+        self._power_callback = func
+
+    def _power_notification(self, notification):
+        parsed = struct.unpack_from('b', buffer(notification))
+        self._power_callback(parsed[0])
+
+    def _forward_L1_diag(self, data):
+        print(data)
+
+    def _sensor_data(self, data):
+        parsed = self._data_stream.parse(data)
+        self._sensor_callback(parsed)
 
     def run(self):
         self._recieve_loop()
 
-    @staticmethod
-    def _int_to_bytes(number, length):
-        number = int(number)
-        result = []
-        for i in range(0, length):
-            result.append((number >> (i * 8)) & 0xff)
-        result.reverse()
-        return result
-
-    @staticmethod
-    def _outside_range(number, min_range, max_range):
-        return number < min_range or number > max_range
+    def _nothing(self, data):
+        print(data)
