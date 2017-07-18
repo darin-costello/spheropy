@@ -2,15 +2,85 @@
 Tools for controlling a Sphero 2.0
 """
 from __future__ import print_function
-import sys
 
+
+from collections import namedtuple
+import struct
+import sys
 import time
 import threading
-import struct
-from collections import namedtuple
+
+from enum import Enum
 from spheropy.BluetoothWrapper import BluetoothWrapper
-from spheropy.Constants import *
 from spheropy.DataStream import DataStreamManager
+from spheropy.Options import PermanentOptions
+from spheropy.Util import nothing
+
+MSRP = {  # taken from sphero api docs
+    0x00: "OK",  # succeeded
+    0x01: "Error",  # non-specific error
+    0x02: "Checksum Error",  # chucksum failure
+    0x03: "Fragmented Command",  # FRAG command
+    0x04: "Unknown Command",  # unknown command id
+    0x05: "Command unsupported",
+    0x06: "Bad Message Format",
+    0x07: "Invalid Paramter values",
+    0x08: "Failed to execute command",
+    0x09: "Unknown Device Id",
+    0x0A: "Ram access need, but is busy",
+    0x0B: "Incorrect Password",
+    0x31: "Voltage too low for reflash",
+    0x32: "Illegal page number",
+    0x33: "Flash Fail: page did not reprogram correctly",
+    0x34: "Main application corruptted",
+    0x35: "Msg state machine timed out"
+}
+
+
+SOP1 = 0xff
+ANSWER = 0xff
+NO_ANSWER = 0xfe
+ACKNOWLEDGMENT = 0xff
+ASYNC = 0xfe
+
+CORE = 0x00
+CORE_COMMANDS = {
+    'PING': 0x01,
+    'GET VERSIONING': 0x02,
+    'SET NAME': 0x10,
+    'GET BLUETOOTH INFO': 0x11,
+    'GET POWER STATE': 0x20,
+    'SET POWER NOTIFICATION': 0x21,
+    'SLEEP': 0x22,
+    'GET VOLTAGE TRIP': 0x23,
+    'SET VOLTAGE TRIP': 0x24,
+    'SET INACT TIMEOUT': 0x25,
+    'L1': 0x40,
+    'L2': 0x41,
+    'POLL PACKET TIMES': 0x51
+
+}
+
+SPHERO = 0x02
+SPHERO_COMMANDS = {
+    'SET HEADING': 0x01,
+    'SET STABILIZATION': 0x02,
+    'SET ROTATION RATE': 0x03,
+    'GET CHASSIS ID': 0x07,
+    'SET DATA STRM': 0x11,
+    'SET COLOR': 0x20,
+    'SET BACKLIGHT': 0x21,
+    'GET COLOR': 0x22,
+    'ROLL': 0x30,
+    'BOOST': 0x31,
+    'SET RAW MOTOR': 0x33,
+    'MOTION TIMEOUT': 0x34,
+    'SET PERM OPTIONS': 0x35,
+    'GET PERM OPTIONS': 0x36,
+    'SET TEMP OPTIONS': 0x37,
+    'GET TEMP OPTIONS': 0x38,
+
+}
 
 
 def eprint(*args, **kwargs):
@@ -21,6 +91,28 @@ def eprint(*args, **kwargs):
 
 
 BluetoothInfo = namedtuple("BluetoothInfo", ['name', 'address', 'color'])
+Color = namedtuple('Color', ['r', 'g', 'b'])
+MotorValue = namedtuple('MotorValue', ['mode', 'power'])
+PacketTime = namedtuple('PacketTime', ['offset', 'delay'])
+PowerState = namedtuple('PowerState', [
+                        'recVer', 'power_state', 'batt_voltage', 'num_charges', 'time_since_chg'])
+Response = namedtuple('Response', ['success', 'data'])
+
+
+class MotorState(Enum):
+    """
+    An enum to represent possible motor states
+    """
+    off = 0x00
+    forward = 0x01
+    reverse = 0x02
+    brake = 0x03
+    ignore = 0x04
+
+
+class SpheroException(Exception):
+    """ Exception class for the Sphero"""
+    pass
 
 
 class Sphero(threading.Thread):
@@ -63,7 +155,7 @@ class Sphero(threading.Thread):
 
         self._msg_lock = threading.Lock()
         self._msg = bytearray(2048)
-        self._msg[SOP1_INDEX] = SOP1
+        self._msg[0] = SOP1
 
         self._response_lock = threading.Lock()
         self._response_event_lookup = {}
@@ -80,8 +172,8 @@ class Sphero(threading.Thread):
             # 0x0C: self._gyro_exceeded
         }
 
-        self._sensor_callback = self._nothing
-        self._power_callback = self._nothing
+        self._sensor_callback = nothing
+        self._power_callback = nothing
 
     def __enter__(self):
         connected = False
@@ -112,8 +204,8 @@ class Sphero(threading.Thread):
                 packet[0] = self.bluetooth.receive(1)
 
             # state two
-            packet[SOP2_INDEX] = self.bluetooth.receive(1)
-            packet_type = packet[SOP2_INDEX]
+            packet[1] = self.bluetooth.receive(1)
+            packet_type = packet[1]
             if packet_type == ACKNOWLEDGMENT:  # Sync Packet
                 self._handle_acknowledge()
 
@@ -131,7 +223,7 @@ class Sphero(threading.Thread):
             # TODO cover oxff cases
         array = self._read(length, offset=3)
 
-        array[MSRP_INDEX] = msrp
+        array[0] = msrp
         array[1] = seq
         array[2] = length
         checksum = Sphero._check_sum(array[0:-1])
@@ -204,17 +296,17 @@ class Sphero(threading.Thread):
                 self._response_event_lookup[seq_number] = event
 
         with self._msg_lock:
-            self._msg[SOP2_INDEX] = ANSWER if response else NO_ANSWER
-            self._msg[SEQENCE_INDEX] = seq_number
-            self._msg[DID_INDEX] = did
-            self._msg[CID_INDEX] = cid
-            self._msg[LENGTH_INDEX] = data_length + 1
+            self._msg[1] = ANSWER if response else NO_ANSWER
+            self._msg[2] = did
+            self._msg[3] = cid
+            self._msg[4] = seq_number
+            self._msg[5] = data_length + 1
             self._msg[6:6 + data_length] = data
             checksum = Sphero._check_sum(
-                self._msg[DID_INDEX: DATA_START + data_length])
-            self._msg[DATA_START + data_length] = checksum
+                self._msg[2: 6 + data_length])
+            self._msg[6 + data_length] = checksum
             self.bluetooth.send(
-                buffer(self._msg[0: DATA_START + data_length + 1]))
+                buffer(self._msg[0: 6 + data_length + 1]))
 
         if response:
             if event.wait(self._response_time_out):
@@ -550,20 +642,31 @@ class Sphero(threading.Thread):
         return self._send(SPHERO, SPHERO_COMMANDS['ROLL'], speed + heading + gobit, response)
 
     def stop(self, response=False):
+        """
+        Tells the Shero to stop
+        """
         return self._send(SPHERO, SPHERO_COMMANDS['ROLL'], [0, 0, 0, 0], response)
 
-    def boost(self, on, response=True):
-        on = 0x01 if on else 0x00
-        return self._send(SPHERO, SPHERO_COMMANDS['BOOST'], [on], response)
+    def boost(self, activate, response=True):
+        """
+        turns on boost
+        """
+        activate = 0x01 if activate else 0x00
+        return self._send(SPHERO, SPHERO_COMMANDS['BOOST'], [activate], response)
 
     def set_raw_motor_values(self, left_value, right_value, response=False):
+        """
+        allows direct controle of the motors
+        both motor values hsould be MotorValue tuple
+        """
         lmode = left_value.mode.value
         lpower = left_value.power
         rmode = right_value.mode.value
         rpower = right_value.power
         if Sphero._outside_range(lpower, 0, 255) or Sphero._outside_range(rpower, 0, 255):
             raise SpheroException("Values outside of range")
-        return self._send(SPHERO, SPHERO_COMMANDS['SET RAW MOTOR'], [lmode, lpower, rmode, rpower], response)
+        data = [lmode, lpower, rmode, rpower]
+        return self._send(SPHERO, SPHERO_COMMANDS['SET RAW MOTOR'], data, response)
 
     def set_motion_timeout(self, timeout, response=False):
         """
@@ -573,14 +676,17 @@ class Sphero(threading.Thread):
         """
         if self._outside_range(timeout, 0, 0xFFFF):
             raise SpheroException("Timeout outside of valid range")
-        return self._send(SPHERO, SPHERO_COMMANDS['MOTION TIMEOUT'], self._int_to_bytes(timeout, 2), response)
+        timeout = self._int_to_bytes(timeout, 2)
+        return self._send(SPHERO, SPHERO_COMMANDS['MOTION TIMEOUT'], timeout, response)
 
     def set_permanent_options(self, options, response=False):
         """
-        Set Options, for option information see PermanentOptionFlag docs. Options persist across power cycles
+        Set Options, for option information see PermanentOptionFlag docs.
+        Options persist across power cycles
         @Param a permanentOption Object
         """
-        return self._send(SPHERO, SPHERO_COMMANDS['SET PERM OPTIONS'], self._int_to_bytes(options.bitflags, 8), response)
+        options = self._int_to_bytes(options.bitflags, 8)
+        return self._send(SPHERO, SPHERO_COMMANDS['SET PERM OPTIONS'], options, response)
 
     def get_permanent_options(self):
         """
@@ -618,11 +724,21 @@ class Sphero(threading.Thread):
 # ASYNC
 
     def register_sensor_callback(self, func):
-        assert(callable(func))
+        """
+        register a function to call whena sensor message is recieved
+        func must be callable
+        it will be started in its own thread
+        """
+        assert callable(func)
         self._sensor_callback = func
 
     def register_power_callback(self, func):
-        assert(callable(func))
+        """
+        register a function to call when an async power notification is recieved
+        func must be callable
+        it will be started in its own thread
+        """
+        assert callable(func)
         self._power_callback = func
 
     def _power_notification(self, notification):
@@ -644,6 +760,3 @@ class Sphero(threading.Thread):
 
     def run(self):
         self._recieve_loop()
-
-    def _nothing(self, data):
-        print(data)
