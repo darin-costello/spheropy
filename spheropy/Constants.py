@@ -40,11 +40,19 @@ ASYNC = 0xfe
 CORE = 0x00
 CORE_COMMANDS = {
     'PING': 0x01,
+    'GET VERSIONING': 0x02,
+    'SET NAME': 0x10,
+    'GET BLUETOOTH INFO': 0x11,
     'GET POWER STATE': 0x20,
     'SET POWER NOTIFICATION': 0x21,
     'SLEEP': 0x22,
+    'GET VOLTAGE TRIP': 0x23,
+    'SET VOLTAGE TRIP': 0x24,
     'SET INACT TIMEOUT': 0x25,
+    'L1': 0x40,
+    'L2': 0x41,
     'POLL PACKET TIMES': 0x51
+
 }
 
 SPHERO = 0x02
@@ -214,6 +222,44 @@ class MotorState(Enum):
     reverse = 0x02
     brake = 0x03
     ignore = 0x04
+
+
+class VoltageTripPoints(object):
+
+    def __init__(self):
+        self._low = 700
+        self._crit = 650
+
+    @property
+    def low(self):
+        return self._low
+
+    @low.setter
+    def low(self, value):
+        if value < 675 or value > 725:
+            raise SpheroException(
+                "Low voltage trip point must be between 675 and 725")
+
+        if abs(value - self._crit) > 25:
+            raise SpheroException(
+                "Low and Critical trip points must have a seperation larger then 25")
+
+        self._low = value
+
+    @property
+    def crit(self):
+        return self._crit
+
+    @crit.setter
+    def crit(self, value):
+        if value < 625 or value > 675:
+            raise SpheroException(
+                "Critical voltage trip point must be between 625 and 675")
+
+        if abs(value - self._low) > 25:
+            raise SpheroException(
+                "Low and Critical trip points must have a seperation larger then 25")
+        self._crit = value
 
 
 class SpheroException(Exception):

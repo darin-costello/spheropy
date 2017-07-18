@@ -7,13 +7,20 @@ import sys
 import time
 import threading
 import struct
+from collections import namedtuple
 from spheropy.BluetoothWrapper import BluetoothWrapper
 from spheropy.Constants import *
 from spheropy.DataStream import DataStreamManager
 
 
 def eprint(*args, **kwargs):
+    """
+    Prints message to std error
+    """
     print(*args, file=sys.stderr, **kwargs)
+
+
+BluetoothInfo = namedtuple("BluetoothInfo", ['name', 'address', 'color'])
 
 
 class Sphero(threading.Thread):
@@ -21,7 +28,8 @@ class Sphero(threading.Thread):
 # Static Methods
     @staticmethod
     def _check_sum(data):
-        """ calculates the checksum as The modulo 256 sum of all the bytes bit inverted (1's complement)
+        """
+        calculates the checksum as The modulo 256 sum of all the bytes bit inverted (1's complement)
         """
         return (sum(data) % 256) ^ 0xff
 
@@ -64,8 +72,8 @@ class Sphero(threading.Thread):
 
         self._data_stream = DataStreamManager()
         self._asyn_func = {
-            # 0x01: self._power_notification,
-            # 0x02: self._foward_L1_diag,
+            0x01: self._power_notification,
+            0x02: self._forward_L1_diag,
             0x03: self._sensor_data,
             # 0x07: self._collision_detect,
             # 0x0B: self._self_level_result,
@@ -82,7 +90,7 @@ class Sphero(threading.Thread):
             try:
                 self.connect()
                 connected = True
-            except:
+            except SpheroException:
                 tries += 1
         if tries >= self.number_tries:
             raise SpheroException("Unable to connect to sphero")
@@ -147,7 +155,6 @@ class Sphero(threading.Thread):
             event.set()
 
     def _handle_async(self):
-        # TODO, this is a stub, actual parsing will be needed
         id_code = ord(self.bluetooth.receive(1))
         length_msb = ord(self.bluetooth.receive(1))
         length_lsb = ord(self.bluetooth.receive(1))
@@ -250,31 +257,42 @@ class Sphero(threading.Thread):
 
     def get_versioning(self):
         """
-        Not implemented
+        Returns a tuple of the bytes of the versioning info see Sphero api docs for more info.
         """
-        # TODO
-        raise SpheroException("NOT IMPLEMENTED")
+        reply = self._send(CORE, CORE_COMMANDS['GET VERSIONING'], [], True)
+        if reply.success:
+            parsed = struct.unpack_from(">8B", buffer(reply.data))
+            return Response(True, parsed)
+        else:
+            return reply
 
-    def set_device_name(self, response=False):
+    def set_device_name(self, name, response=False):
         """
-        not_implemented
         This assigned name is held internally and produced as part of the Get Bluetooth Info
-        service below. Names are clipped at 48 characters in length to support UTF-8 sequences; you can send
-        something longer but the extra will be discarded. This field defaults to the Bluetooth advertising name.
+        service below. Names are clipped at 48 characters in length to support UTF-8 sequences
+        you can send something longer but the extra will be discarded.
+        This field defaults to the Bluetooth advertising name.
         """
-        # TODO
-        raise SpheroException("NOT IMPLEMENTED")
+        return self._send(CORE, CORE_COMMANDS['SET NAME'], name, response)
 
     def get_bluetooth_info(self):
         """
-        not implemented
-        This returns a structure containing the textual name in ASCII of the ball (defaults to the Bluetooth
-        advertising name but can be changed), the Bluetooth address in ASCII and the ID colors the ball blinks
-        when not connected to a smartphone.
-        The ASCII name field is padded with zeros to its maximum siz
+        This returns a structure containing the textual name of the ball (defaults to the Bluetooth
+        advertising name but can be changed), the Bluetooth address and
+        the ID colors the ball blinks when not connected
         """
-        # TODO
-        raise SpheroException("NOT IMPLEMENTED")
+        result = self._send(
+            CORE, CORE_COMMANDS['GET BLUETOOTH INFO'], [], True)
+        if result.success:
+            fmt = ">16s12sx3c"
+            temp_tup = struct.unpack_from(fmt, buffer(result.data))
+            name = temp_tup[0]
+            name = name[:name.find('\x00')]
+            named_tuple = BluetoothInfo(
+                name, temp_tup[1], (temp_tup[2], temp_tup[3], temp_tup[4]))
+            return Response(True, named_tuple)
+        else:
+            return result
 
     def get_power_state(self):
         """
@@ -285,9 +303,10 @@ class Sphero(threading.Thread):
             num_charges: number of recharges in the lilfe of this sphero
             time_since_chg: seconds Awake
         other wise it returns None
-        function will try 'number_tries' times to get a response, and will wait up to 'response_time_out 'seconds for each response. thus it may block for up to 'response_time_out X number_tries' seconds
+        function will try 'number_tries' times to get a response,
+        and will wait up to 'response_time_out 'seconds for each response.
+        thus it may block for up to 'response_time_out X number_tries' seconds
         """
-        # TODO
         reply = self._stable_send(
             CORE, CORE_COMMANDS['GET POWER STATE'], [], True)
         if reply.success:
@@ -297,9 +316,9 @@ class Sphero(threading.Thread):
             return None
 
     def set_power_notification(self, setting, response=False):
-        """ WARNING asnyc messages not implemetned"""
-        # TODO
-        raise SpheroException("NOT IMPLEMENTED")
+        """
+        Sets Async power notification messages to be sent
+        """
         flag = 0x01 if setting else 0x00
         reply = self._send(
             CORE, CORE_COMMANDS['SET POWER NOTIFICATION'], [flag], response)
@@ -308,8 +327,8 @@ class Sphero(threading.Thread):
     def sleep(self, wakeup_time, response=False):
         """
         This command puts Sphero to sleep immediately.
-        wakeup_time: The number of seconds for Sphero to sleep for and then automatically reawaken. Zero does not program a wakeup interval, so he sleeps forever. FFFFh attempts to put him into deep sleep (if supported in hardware) and returns an error if the hardware does not support it.
-
+        wakeup_time: The number of seconds for Sphero to sleep for and then automatically reawaken.
+        Zero does not program a wakeup interval, so he sleeps forever.
         Breaks the connection
         """
         if wakeup_time < 0 or wakeup_time > 0xffff:
@@ -317,33 +336,38 @@ class Sphero(threading.Thread):
         big = wakeup_time >> 8
         little = (wakeup_time & 0x00ff)
         reply = self._send(CORE, CORE_COMMANDS['SLEEP'], [
-                           big, little, 0, 0, 0], response)
+            big, little, 0, 0, 0], response)
 
         return reply
 
     def get_voltage_trip_points(self):
         """
-        not implemented
-        This returns the voltage trip points for what Sphero considers Low battery and Critical battery. The
-        values are expressed in 100ths of a volt, so the defaults of 7.00V and 6.50V respectively are returned as
+        This returns the voltage trip points for what Sphero considers Low and Critical battery.
+        The values are expressed in 100ths of a volt,
+        so the defaults of 7.00V and 6.50V respectively are returned as
         700 and 650.
         """
-        # TODO
-        raise SpheroException("NOT IMPLEMENTED")
+        reply = self._send(CORE, CORE_COMMANDS['GET VOLTAGE TRIP'], [], True)
+        if reply.success:
+            parse = struct.unpack_from(">HH", buffer(reply.data))
+            return Response(True, parse)
+        else:
+            return reply
 
     def set_voltage_trip_points(self, low, critical, response=False):
         """
         not implemented
-        This assigns the voltage trip points for Low and Critical battery voltages. The values are specified in
-        100ths of a volt and the limitations on adjusting these away from their defaults are:
+        This assigns the voltage trip points for Low and Critical battery voltages.
+        The values are specified in  100ths of a volt and
+        the limitations on adjusting these away from their defaults are:
         Vlow must be in the range 675 to 725 (+=25)
         Vcrit must be in the range 625 to 675 (+=25)
         There must be 0.25V of separation between the two values
-        Shifting these values too low could result in very little warning before Sphero forces himself to sleep,
-        depending on the age and history of the battery pack. So be careful.
         """
-        # TODO
-        raise SpheroException("NOT IMPLEMENTED")
+        assert False
+        low = self._int_to_bytes(low, 2)
+        crit = self._int_to_bytes(critical, 2)
+        return self._send(CORE, CORE_COMMANDS['SET VOLTAGE TRIP'], low + crit, response)
 
     def set_inactivity_timeout(self, timeout, response=False):
         """
@@ -355,17 +379,41 @@ class Sphero(threading.Thread):
         big = timeout >> 8
         little = (timeout & 0x00ff)
         reply = self._send(CORE, CORE_COMMANDS['SET INACT TIMEOUT'], [
-                           big, little], response)
+            big, little], response)
 
         return reply
 
-    def l1_diag(self):
-        # TODO
-        raise SpheroException("NOT IMPLEMENTED")
+    def L1_diag(self):
+        """
+        This is a developer-level command to help diagnose aberrant behavior.
+        Most system counters, process flags, and system states are decoded
+        into human readable ASCII.
+        """
+        event = None
+        with self._response_lock:
+            event = threading.Event()
+            self._response_event_lookup['L1'] = event
 
-    def l2_diag(self):
-        # TODO
-        raise SpheroException("NOT IMPLEMENTED")
+        self._send(CORE, CORE_COMMANDS['L1'], [], False)
+
+        if event.wait(self._response_time_out * 10):
+            response = None
+            with self._response_lock:
+                response = self._responses['L1']
+            return Response(True, response)
+        else:
+            return Response(False, "no data recieved")
+
+    def L2_diag(self):
+        """
+        This is a developers-only command to help diagnose aberrant behavior.
+        It is much less informative than the Level 1 command
+        but it is in binary format and easier to parse
+        Command not found
+        """
+
+        assert False
+        return self._send(CORE, CORE_COMMANDS['L2'], [], True)
 
     def poll_packet_times(self):
         """
@@ -412,10 +460,9 @@ class Sphero(threading.Thread):
 
     def set_stabilization(self, stablize, response=False):
         """
-        This turns on or off the internal stabilization of Sphero, in which the IMU is used to match the ball's
-        orientation to its various set points.
-        An error is returned if the sensor network is dead; without sensors the IMU won't operate and thus
-        there is no feedback to control stabilization.
+        This turns on or off the internal stabilization of Sphero,
+        the IMU is used to match the ball's orientation to its set points.
+        An error is returned if the sensor network is dead;
         """
         flag = 0x01 if stablize else 0x00
         return self._send(SPHERO, SPHERO_COMMANDS['SET STABILIZATION'], [flag], response)
@@ -426,7 +473,7 @@ class Sphero(threading.Thread):
         Lower value offers better control, with a larger turning radius
         rate should be in degrees/sec, above 199 the maxium value is used(400 degrees/sec)
         """
-        # TODO returns unknwon command
+        # TODO returns unknown command
         if rate < 0:
             return Response(False, "USE POSITIVE RATE ONLY")
         if rate > 199:
@@ -449,22 +496,22 @@ class Sphero(threading.Thread):
         else:
             return response
 
-    def self_level(self, angle_limit=0, timeout=0, ture_time=0, sleep=False):
-        # TODO
-        raise SpheroException("NOT IMPLEMENTED")
-
     def set_data_stream(self, stream_settings, frequency, packet_count=0, response=False):
-
+        """
+        Sets data stream options
+        """
         self._data_stream = stream_settings.copy()
-        divisor = int(400.0 / frequency)
-        samples = self._data_stream.number_frames
-        data = self._int_to_bytes(divisor, 2) + self._int_to_bytes(samples, 2) + self._int_to_bytes(
-            self._data_stream.mask1, 4) + [packet_count] + self._int_to_bytes(self._data_stream.mask2, 4)
+        divisor = self._int_to_bytes(int(400.0 / frequency), 2)
+        samples = self._int_to_bytes(self._data_stream.number_frames, 2)
+        mask1 = self._int_to_bytes(self._data_stream.mask1, 4)
+        mask2 = self._int_to_bytes(self._data_stream_mask2, 4)
+        data = divisor + samples + mask1 + [packet_count] + mask2
         return self._send(SPHERO, SPHERO_COMMANDS['SET DATA STRM'], data, response)
 
     def set_color(self, red, green, blue, default=False, response=False):
         """
-        Sets the color of ther sphero given rgb conbonants between 0 and 255, if default is true, sphero will default to that color when first connected
+        Sets the color of ther sphero given rgb conbonants between 0 and 255,
+        if default is true, sphero will default to that color when first connected
         """
 
         red = self._int_to_bytes(red, 1)
@@ -494,10 +541,13 @@ class Sphero(threading.Thread):
             return response
 
     def roll(self, speed, heading, fast_rotate=False, response=False):
-        go = [0x02] if fast_rotate else [0x01]
+        """
+        commands the sphero to move
+        """
+        gobit = [0x02] if fast_rotate else [0x01]
         speed = self._int_to_bytes(speed, 1)
         heading = self._int_to_bytes(heading, 2)
-        return self._send(SPHERO, SPHERO_COMMANDS['ROLL'], speed + heading + go, response)
+        return self._send(SPHERO, SPHERO_COMMANDS['ROLL'], speed + heading + gobit, response)
 
     def stop(self, response=False):
         return self._send(SPHERO, SPHERO_COMMANDS['ROLL'], [0, 0, 0, 0], response)
@@ -580,7 +630,13 @@ class Sphero(threading.Thread):
         self._power_callback(parsed[0])
 
     def _forward_L1_diag(self, data):
-        print(data)
+        event = None
+        with self._response_lock:
+            self._responses['L1'] = str(data)
+            if 'L1' in self._response_event_lookup:
+                event = self._response_event_lookup['L1']
+                del self._response_event_lookup['L1']
+        event.set()
 
     def _sensor_data(self, data):
         parsed = self._data_stream.parse(data)
