@@ -6,7 +6,7 @@ import re
 import sys
 
 import bluetooth
-from Constants import SpheroException
+from spheropy.Exception import SpheroException
 
 
 class BluetoothWrapper(object):
@@ -43,7 +43,9 @@ class BluetoothWrapper(object):
 
     def connect(self, address=None):
         """
-        Connects, attempts to connect to a sphero, address must be set, or given as a keyword argument. If a connection is all ready made it is closed, and a new one is started.
+        Connects, attempts to connect to a sphero, address must be set,
+        or given as a keyword argument.
+        If a connection is all ready made it is closed, and a new one is started.
         """
         if address is not None:
             self.address = address
@@ -83,7 +85,8 @@ class BluetoothWrapper(object):
         """
         recieves data from Sphero, and returns it as a byte string
         @param num_bytes, the number of bytes to request
-        @return a byte string with length less than num_bytes, when sphero is disconnected, and all data is read, the empty string is returned.
+        @return a byte string with length less than num_bytes,
+        when sphero is disconnected, and all data is read, the empty string is returned.
         Blocks until atleast one byte is available.
         """
         if self._socket is None:
