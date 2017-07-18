@@ -13,8 +13,9 @@ import threading
 from enum import Enum
 from spheropy.BluetoothWrapper import BluetoothWrapper
 from spheropy.DataStream import DataStreamManager
+from spheropy.Exception import SpheroException
 from spheropy.Options import PermanentOptions
-from spheropy.Util import nothing
+from spheropy.Util import nothing, outside_range, int_to_bytes, check_sum
 
 MSRP = {  # taken from sphero api docs
     0x00: "OK",  # succeeded
@@ -110,20 +111,9 @@ class MotorState(Enum):
     ignore = 0x04
 
 
-class SpheroException(Exception):
-    """ Exception class for the Sphero"""
-    pass
-
-
 class Sphero(threading.Thread):
     """ class representing a sphero """
 # Static Methods
-    @staticmethod
-    def _check_sum(data):
-        """
-        calculates the checksum as The modulo 256 sum of all the bytes bit inverted (1's complement)
-        """
-        return (sum(data) % 256) ^ 0xff
 
     @classmethod
     def find_spheros(cls, tries=5):
@@ -132,18 +122,6 @@ class Sphero(threading.Thread):
         """
         return BluetoothWrapper.find_free_devices(tries=tries, regex="[Ss]phero")
 
-    @staticmethod
-    def _int_to_bytes(number, length):
-        number = int(number)
-        result = []
-        for i in range(0, length):
-            result.append((number >> (i * 8)) & 0xff)
-        result.reverse()
-        return result
-
-    @staticmethod
-    def _outside_range(number, min_range, max_range):
-        return number < min_range or number > max_range
 
 # Working
     def __init__(self, name, address, port=1, response_time_out=1, number_tries=5):
@@ -226,7 +204,7 @@ class Sphero(threading.Thread):
         array[0] = msrp
         array[1] = seq
         array[2] = length
-        checksum = Sphero._check_sum(array[0:-1])
+        checksum = check_sum(array[0:-1])
         if array[-1] != checksum:
             eprint("Malfromed Packet, recieved: {0} expected: {1}".format(
                 array[-1], checksum))
@@ -257,7 +235,7 @@ class Sphero(threading.Thread):
         array[0] = id_code
         array[1] = length_msb
         array[2] = length_lsb
-        checksum = Sphero._check_sum(array[0:-1])
+        checksum = check_sum(array[0:-1])
         if array[-1] != checksum:
             eprint("Malfromed Packet, recieved: {0} expected: {1}".format(
                 array[-1], checksum))
@@ -302,7 +280,7 @@ class Sphero(threading.Thread):
             self._msg[4] = seq_number
             self._msg[5] = data_length + 1
             self._msg[6:6 + data_length] = data
-            checksum = Sphero._check_sum(
+            checksum = check_sum(
                 self._msg[2: 6 + data_length])
             self._msg[6 + data_length] = checksum
             self.bluetooth.send(
@@ -457,8 +435,8 @@ class Sphero(threading.Thread):
         There must be 0.25V of separation between the two values
         """
         assert False
-        low = self._int_to_bytes(low, 2)
-        crit = self._int_to_bytes(critical, 2)
+        low = int_to_bytes(low, 2)
+        crit = int_to_bytes(critical, 2)
         return self._send(CORE, CORE_COMMANDS['SET VOLTAGE TRIP'], low + crit, response)
 
     def set_inactivity_timeout(self, timeout, response=False):
@@ -545,7 +523,7 @@ class Sphero(threading.Thread):
         if heading < 0 or heading > 359:
             return Response(False, "heading must be between 0 and 359")
 
-        heading_bytes = Sphero._int_to_bytes(heading, 2)
+        heading_bytes = int_to_bytes(heading, 2)
         reply = self._send(
             SPHERO, SPHERO_COMMANDS['SET HEADING'], heading_bytes, response)
         return reply
@@ -572,7 +550,7 @@ class Sphero(threading.Thread):
             rate = 200
         else:
             rate = int(rate / 0.784)
-        to_bytes = self._int_to_bytes(rate, 1)
+        to_bytes = int_to_bytes(rate, 1)
         return self._send(SPHERO, SPHERO_COMMANDS['SET ROTATION RATE'], to_bytes, response)
 
     def get_chassis_id(self):
@@ -593,7 +571,7 @@ class Sphero(threading.Thread):
         Sets data stream options
         """
         self._data_stream = stream_settings.copy()
-        divisor = self._int_to_bytes(int(400.0 / frequency), 2)
+        divisor = int_to_bytes(int(400.0 / frequency), 2)
         samples = self._int_to_bytes(self._data_stream.number_frames, 2)
         mask1 = self._int_to_bytes(self._data_stream.mask1, 4)
         mask2 = self._int_to_bytes(self._data_stream_mask2, 4)
@@ -606,7 +584,7 @@ class Sphero(threading.Thread):
         if default is true, sphero will default to that color when first connected
         """
 
-        red = self._int_to_bytes(red, 1)
+        red = int_to_bytes(red, 1)
         blue = self._int_to_bytes(blue, 1)
         green = self._int_to_bytes(green, 1)
         flag = [0x01] if default else [0x00]
@@ -617,7 +595,7 @@ class Sphero(threading.Thread):
         """
         Controls the brightness of the back LED, non persistant
         """
-        brightness = self._int_to_bytes(brightness, 1)
+        brightness = int_to_bytes(brightness, 1)
         return self._send(
             SPHERO, SPHERO_COMMANDS['SET BACKLIGHT'], brightness, response)
 
@@ -637,8 +615,8 @@ class Sphero(threading.Thread):
         commands the sphero to move
         """
         gobit = [0x02] if fast_rotate else [0x01]
-        speed = self._int_to_bytes(speed, 1)
-        heading = self._int_to_bytes(heading, 2)
+        speed = int_to_bytes(speed, 1)
+        heading = int_to_bytes(heading, 2)
         return self._send(SPHERO, SPHERO_COMMANDS['ROLL'], speed + heading + gobit, response)
 
     def stop(self, response=False):
@@ -663,7 +641,7 @@ class Sphero(threading.Thread):
         lpower = left_value.power
         rmode = right_value.mode.value
         rpower = right_value.power
-        if Sphero._outside_range(lpower, 0, 255) or Sphero._outside_range(rpower, 0, 255):
+        if outside_range(lpower, 0, 255) or outside_range(rpower, 0, 255):
             raise SpheroException("Values outside of range")
         data = [lmode, lpower, rmode, rpower]
         return self._send(SPHERO, SPHERO_COMMANDS['SET RAW MOTOR'], data, response)
@@ -676,7 +654,7 @@ class Sphero(threading.Thread):
         """
         if self._outside_range(timeout, 0, 0xFFFF):
             raise SpheroException("Timeout outside of valid range")
-        timeout = self._int_to_bytes(timeout, 2)
+        timeout = int_to_bytes(timeout, 2)
         return self._send(SPHERO, SPHERO_COMMANDS['MOTION TIMEOUT'], timeout, response)
 
     def set_permanent_options(self, options, response=False):
@@ -685,7 +663,7 @@ class Sphero(threading.Thread):
         Options persist across power cycles
         @Param a permanentOption Object
         """
-        options = self._int_to_bytes(options.bitflags, 8)
+        options = int_to_bytes(options.bitflags, 8)
         return self._send(SPHERO, SPHERO_COMMANDS['SET PERM OPTIONS'], options, response)
 
     def get_permanent_options(self):
