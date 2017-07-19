@@ -28,7 +28,7 @@ setup(
 
 
     ],
-    keywords='Sphero Driver',
+    keywords='Sphero SDK',
     packages=find_packages(exclude=['docs', 'test*']),
     install_requires=['pybluez'],
     python_requires='>=2.6',
