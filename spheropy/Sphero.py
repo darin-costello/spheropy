@@ -1,12 +1,10 @@
 """
 Tools for controlling a Sphero 2.0
 """
+
 from __future__ import print_function
-
-
 from collections import namedtuple
 import struct
-import sys
 import time
 import threading
 
@@ -15,7 +13,7 @@ from spheropy.BluetoothWrapper import BluetoothWrapper
 from spheropy.DataStream import DataStreamManager
 from spheropy.Exception import SpheroException
 from spheropy.Options import PermanentOptions
-from spheropy.Util import nothing, outside_range, int_to_bytes, check_sum
+from spheropy.Util import nothing, outside_range, int_to_bytes, check_sum, eprint
 
 MSRP = {  # taken from sphero api docs
     0x00: "OK",  # succeeded
@@ -58,6 +56,7 @@ CORE_COMMANDS = {
     'SET INACT TIMEOUT': 0x25,
     'L1': 0x40,
     'L2': 0x41,
+    'ASSIGN TIME': 0x50,
     'POLL PACKET TIMES': 0x51
 
 }
@@ -69,6 +68,7 @@ SPHERO_COMMANDS = {
     'SET ROTATION RATE': 0x03,
     'GET CHASSIS ID': 0x07,
     'SET DATA STRM': 0x11,
+    'SET COLLISION DETECT': 0x12,
     'SET COLOR': 0x20,
     'SET BACKLIGHT': 0x21,
     'GET COLOR': 0x22,
@@ -83,14 +83,6 @@ SPHERO_COMMANDS = {
 
 }
 
-
-def eprint(*args, **kwargs):
-    """
-    Prints message to std error
-    """
-    print(*args, file=sys.stderr, **kwargs)
-
-
 BluetoothInfo = namedtuple("BluetoothInfo", ['name', 'address', 'color'])
 Color = namedtuple('Color', ['r', 'g', 'b'])
 MotorValue = namedtuple('MotorValue', ['mode', 'power'])
@@ -98,6 +90,8 @@ PacketTime = namedtuple('PacketTime', ['offset', 'delay'])
 PowerState = namedtuple('PowerState', [
                         'recVer', 'power_state', 'batt_voltage', 'num_charges', 'time_since_chg'])
 Response = namedtuple('Response', ['success', 'data'])
+CollisionMsg = namedtuple('CollisionMsg', [
+                          'x', 'y', 'z', 'axis', 'x_magnitude', 'y_magnitude', 'speed', 'timestamp'])
 
 
 class MotorState(Enum):
@@ -145,13 +139,14 @@ class Sphero(threading.Thread):
             0x01: self._power_notification,
             0x02: self._forward_L1_diag,
             0x03: self._sensor_data,
-            # 0x07: self._collision_detect,
+            0x07: self._collision_detect,
             # 0x0B: self._self_level_result,
             # 0x0C: self._gyro_exceeded
         }
 
         self._sensor_callback = nothing
         self._power_callback = nothing
+        self._collision_callback = nothing
 
     def __enter__(self):
         connected = False
@@ -242,7 +237,7 @@ class Sphero(threading.Thread):
             return
         else:
             data = array[3:-1]
-            tocall = self._asyn_func.get(id_code, self._nothing)
+            tocall = self._asyn_func.get(id_code, nothing)
             thread = threading.Thread(target=tocall, args=(data,))
             thread.start()
             return
@@ -485,6 +480,13 @@ class Sphero(threading.Thread):
         assert False
         return self._send(CORE, CORE_COMMANDS['L2'], [], True)
 
+    def assign_time(self, time_value, response=False):
+        """
+        Sets the internal timer to the given time.
+        this is the time that shows up in a collision message
+        """
+        return self._send(CORE, CORE_COMMANDS['ASSIGN TIME'], int_to_bytes(time_value, 4), response)
+
     def poll_packet_times(self):
         """
         Command to help profile latencies
@@ -577,6 +579,23 @@ class Sphero(threading.Thread):
         mask2 = self._int_to_bytes(self._data_stream_mask2, 4)
         data = divisor + samples + mask1 + [packet_count] + mask2
         return self._send(SPHERO, SPHERO_COMMANDS['SET DATA STRM'], data, response)
+
+    def start_collision_detection(self, x_threshold, y_threshold, x_speed, y_speed, dead=1000, response=False):
+        """
+        Starts, collision detection, threshold values represent the max threshold,
+        and speed is added to thersholds ranged by the spheros speed,
+        dead is post-collision dead time,
+        in ms. all data must be in the range 0...255
+        """
+        method = 0x01
+        dead = int(dead / 10)
+        return self._send(SPHERO, SPHERO_COMMANDS['SET COLLISION DETECT'], [method, x_threshold, x_speed, y_threshold, y_speed, dead], response)
+
+    def stop_collision_detection(self, response=False):
+        """
+        Stops collision detection
+        """
+        return self._send(SPHERO, SPHERO_COMMANDS['SET COLLISION DETECT'], [0, 0, 0, 0, 0, 0], response)
 
     def set_color(self, red, green, blue, default=False, response=False):
         """
@@ -719,6 +738,15 @@ class Sphero(threading.Thread):
         assert callable(func)
         self._power_callback = func
 
+    def register_collision_callback(self, func):
+        """
+        registers a callback function for asyn collision notifications
+        func must be callable
+        it's started in its own thread
+        """
+        assert callable(func)
+        self._collision_callback = func
+
     def _power_notification(self, notification):
         parsed = struct.unpack_from('b', buffer(notification))
         self._power_callback(parsed[0])
@@ -735,6 +763,16 @@ class Sphero(threading.Thread):
     def _sensor_data(self, data):
         parsed = self._data_stream.parse(data)
         self._sensor_callback(parsed)
+
+    def _collision_detect(self, data):
+        fmt = ">3hB2HbL"
+        unpacked = struct.unpack_from(fmt, buffer(data))
+
+        x_list = ['x'] if unpacked[3] & 0x01 else []
+        y_list = ['y'] if unpacked[3] & 0x02 else []
+        parsed = CollisionMsg(unpacked[0], unpacked[1], unpacked[2], x_list +
+                              y_list, unpacked[4], unpacked[5], unpacked[6], unpacked[7])
+        self._collision_callback(parsed)
 
     def run(self):
         self._recieve_loop()

@@ -1,4 +1,8 @@
-def nothing(self, data):
+from __future__ import print_function
+import sys
+
+
+def nothing(data):
     print(data)
 
 
@@ -20,3 +24,10 @@ def check_sum(data):
     calculates the checksum as The modulo 256 sum of all the bytes bit inverted (1's complement)
     """
     return (sum(data) % 256) ^ 0xff
+
+
+def eprint(*args, **kwargs):
+    """
+    Prints message to std error
+    """
+    print(*args, file=sys.stderr, **kwargs)

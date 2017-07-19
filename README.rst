@@ -48,11 +48,11 @@ A driver for sphero 2.0 written entirely in python. Currently it provides access
 - setint permanent options
 - set motion timeout
 - stop on disconnect
+- collision detection
 
 **Future:**
 
-- read and configure locator
-- collision detection
+- configure locator
 - developer commands
 - Macro commands
 - SSB data
