@@ -30,16 +30,16 @@ DataInfo = namedtuple(
     'DataInfo', ['name', 'tuple', 'size', 'mask', 'conversion'])
 
 ACC_RAW_CONV = 4 * 1e-3  # 4mg -> g
-GYRO_RAW_CONV = 0.068 * (pi / 180.0)  # 0.068 degrees -> degrees
+GYRO_RAW_CONV = 0.068 * (pi / 180.0)  # 0.068 degrees -> radians
 MOTOR_EMF_RAW_CONV = 22.5 * 1e-2  # 22.5cm -> m
 MOTOR_PMW_CONV = 1
-IMU_ANGE_CONV = pi / 180.0
-ACC_CONV = 1.0 / 4096.0  # 1 /4096 G -> G
+IMU_ANGE_CONV = pi / 180.0  # degress -> radians
+ACC_CONV = (1.0 / 4096.0) * 9.80665  # 1 /4096 G -> m/s^2
 GYRO_CONV = 0.1  # 0.1 dps -> dps
 MOTOR_EMF_CONV = 22.5 * 1e-2
 QUATERNION_CONV = 1e-4  # 1/ 10000Q -> Q
 ODOM_CONV = 1e-2  # cm -> m
-ACCELONE_CONV = 1e-3  # mG -> G
+ACCELONE_CONV = 1e-3 * 9.80665  # mG -> m/s^2
 VELOCITY_CONV = 1e-3  # mm/s -> m/s
 ORDER1 = [
     DataInfo('acc_raw', ThreeD, 3, ACC_RAW_MASK, ACC_CONV),
