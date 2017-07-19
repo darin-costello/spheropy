@@ -4,6 +4,7 @@ Tools for configuring and parsing sphero async data stream
 
 from collections import namedtuple
 import struct
+from math import pi
 
 ACC_RAW_MASK = 0xE0000000
 GYRO_RAW_MASK = 0x1C000000
@@ -29,10 +30,10 @@ DataInfo = namedtuple(
     'DataInfo', ['name', 'tuple', 'size', 'mask', 'conversion'])
 
 ACC_RAW_CONV = 4 * 1e-3  # 4mg -> g
-GYRO_RAW_CONV = 0.068  # 0.068 degrees -> degrees
+GYRO_RAW_CONV = 0.068 * (pi / 180.0)  # 0.068 degrees -> degrees
 MOTOR_EMF_RAW_CONV = 22.5 * 1e-2  # 22.5cm -> m
 MOTOR_PMW_CONV = 1
-IMU_ANGE_CONV = 1
+IMU_ANGE_CONV = pi / 180.0
 ACC_CONV = 1.0 / 4096.0  # 1 /4096 G -> G
 GYRO_CONV = 0.1  # 0.1 dps -> dps
 MOTOR_EMF_CONV = 22.5 * 1e-2
