@@ -164,7 +164,7 @@ class Sphero(threading.Thread):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
+        self.disconnect()
         return self.suppress_exception
 
     def _recieve_loop(self):
@@ -291,9 +291,9 @@ class Sphero(threading.Thread):
         """
         Connects to the sphero with the given address
         """
-        self.bluetooth.connect()
+        return self.bluetooth.connect()
 
-    def close(self):
+    def disconnect(self):
         """
         Closes the connection to the sphero,
         if sphero is not connected call has no effect
@@ -580,7 +580,7 @@ class Sphero(threading.Thread):
         data = divisor + samples + mask1 + [packet_count] + mask2
         return self._send(SPHERO, SPHERO_COMMANDS['SET DATA STRM'], data, response)
 
-    def start_collision_detection(self, x_threshold, y_threshold, x_speed, y_speed, dead=1000, response=False):
+    def start_collision_detection(self, x_threshold, x_speed, y_threshold, y_speed, dead=1000, response=False):
         """
         Starts, collision detection, threshold values represent the max threshold,
         and speed is added to thersholds ranged by the spheros speed,
@@ -748,7 +748,7 @@ class Sphero(threading.Thread):
         self._collision_callback = func
 
     def _power_notification(self, notification):
-        parsed = struct.unpack_from('b', buffer(notification))
+        parsed = struct.unpack_from('B', buffer(notification))
         self._power_callback(parsed[0])
 
     def _forward_L1_diag(self, data):
@@ -765,7 +765,7 @@ class Sphero(threading.Thread):
         self._sensor_callback(parsed)
 
     def _collision_detect(self, data):
-        fmt = ">3hB2HbL"
+        fmt = ">3hB2HbI"
         unpacked = struct.unpack_from(fmt, buffer(data))
 
         x_list = ['x'] if unpacked[3] & 0x01 else []

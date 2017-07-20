@@ -57,6 +57,7 @@ class BluetoothWrapper(object):
         try:
             self._socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
             self._socket.connect((self.address, self.port))
+            return True
         except bluetooth.BluetoothError as error:
             if self._socket is not None:
                 self._socket.close()
@@ -65,6 +66,7 @@ class BluetoothWrapper(object):
             sys.stderr.flush()
             raise SpheroException(
                 "Unable to connect due to bluetooth error: " + error.message)
+        return False
 
     def send(self, msg):
         """
