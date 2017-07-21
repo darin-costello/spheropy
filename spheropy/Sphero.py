@@ -496,7 +496,6 @@ class Sphero(threading.Thread):
         """
         # TODO time 1 gets mangled.
         time1 = int(round(time.time() * 1000))
-        print(time1 & 0xffffffff)
         bit1 = (time1 & 0xff000000) >> 24
         bit2 = (time1 & 0x00ff0000) >> 16
         bit3 = (time1 & 0x0000ff00) >> 8
@@ -504,11 +503,8 @@ class Sphero(threading.Thread):
         reply = self._stable_send(CORE, CORE_COMMANDS['POLL PACKET TIMES'], [
             bit1, bit2, bit3, bit4], True)
         time4 = int(round(time.time() * 1000)) & 0xffffffff
-        print(time4)
-        print(reply)
         if reply.success:
             sphero_time = struct.unpack_from('>III', buffer(reply.data))
-            print(sphero_time[0])
             offset = 0.5 * \
                 ((sphero_time[1] - sphero_time[0]) + (sphero_time[2] - time4))
             delay = (time4 - sphero_time[0]) - \
