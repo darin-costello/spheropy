@@ -134,7 +134,7 @@ class Sphero(threading.Thread):
         self._responses = {}
         self._response_time_out = response_time_out
 
-        self._data_stream = DataStreamManager()
+        self._data_stream = None
         self._asyn_func = {
             0x01: self._power_notification,
             0x02: self._forward_L1_diag,
@@ -385,7 +385,7 @@ class Sphero(threading.Thread):
         Sets Async power notification messages to be sent
         """
         flag = 0x01 if setting else 0x00
-        reply = self._send(
+        reply = self._stable_send(
             CORE, CORE_COMMANDS['SET POWER NOTIFICATION'], [flag], response)
         return reply
 
@@ -526,7 +526,7 @@ class Sphero(threading.Thread):
             return Response(False, "heading must be between 0 and 359")
 
         heading_bytes = int_to_bytes(heading, 2)
-        reply = self._send(
+        reply = self._stable_send(
             SPHERO, SPHERO_COMMANDS['SET HEADING'], heading_bytes, response)
         return reply
 
@@ -537,11 +537,11 @@ class Sphero(threading.Thread):
         An error is returned if the sensor network is dead;
         """
         flag = 0x01 if stablize else 0x00
-        return self._send(SPHERO, SPHERO_COMMANDS['SET STABILIZATION'], [flag], response)
+        return self._stable_send(SPHERO, SPHERO_COMMANDS['SET STABILIZATION'], [flag], response)
 
     def set_rotation_rate(self, rate, response=False):
         """
-        sets teh roation rate sphero will use to meet new heading commands
+        sets the roation rate sphero will use to meet new heading commands
         Lower value offers better control, with a larger turning radius
         rate should be in degrees/sec, above 199 the maxium value is used(400 degrees/sec)
         """
@@ -574,11 +574,21 @@ class Sphero(threading.Thread):
         """
         self._data_stream = stream_settings.copy()
         divisor = int_to_bytes(int(400.0 / frequency), 2)
-        samples = self._int_to_bytes(self._data_stream.number_frames, 2)
-        mask1 = self._int_to_bytes(self._data_stream.mask1, 4)
-        mask2 = self._int_to_bytes(self._data_stream_mask2, 4)
+        samples = int_to_bytes(self._data_stream.number_frames, 2)
+        mask1 = int_to_bytes(self._data_stream.mask1, 4)
+        mask2 = int_to_bytes(self._data_stream.mask2, 4)
         data = divisor + samples + mask1 + [packet_count] + mask2
-        return self._send(SPHERO, SPHERO_COMMANDS['SET DATA STRM'], data, response)
+        return self._stable_send(SPHERO, SPHERO_COMMANDS['SET DATA STRM'], data, response)
+
+    def stop_data_stream(self):
+        """
+        stops data streaming
+        """
+        result = self._stable_send(SPHERO, SPHERO_COMMANDS['SET DATA STRM'], [
+                                   0xff, 0, 0, 0, 0, 0, 0, 0, 1], True)
+        if result.success:
+            self._data_stream = None
+        return result
 
     def start_collision_detection(self, x_threshold, x_speed, y_threshold, y_speed, dead=1000, response=False):
         """
@@ -589,7 +599,7 @@ class Sphero(threading.Thread):
         """
         method = 0x01
         dead = int(dead / 10)
-        return self._send(SPHERO, SPHERO_COMMANDS['SET COLLISION DETECT'], [method, x_threshold, x_speed, y_threshold, y_speed, dead], response)
+        return self._stable_send(SPHERO, SPHERO_COMMANDS['SET COLLISION DETECT'], [method, x_threshold, x_speed, y_threshold, y_speed, dead], response)
 
     def stop_collision_detection(self, response=False):
         """
@@ -604,10 +614,10 @@ class Sphero(threading.Thread):
         """
 
         red = int_to_bytes(red, 1)
-        blue = self._int_to_bytes(blue, 1)
-        green = self._int_to_bytes(green, 1)
+        blue = int_to_bytes(blue, 1)
+        green = int_to_bytes(green, 1)
         flag = [0x01] if default else [0x00]
-        return self._send(
+        return self._stable_send(
             SPHERO, SPHERO_COMMANDS['SET COLOR'], red + green + blue + flag, response)
 
     def set_back_light(self, brightness, response=False):
@@ -615,7 +625,7 @@ class Sphero(threading.Thread):
         Controls the brightness of the back LED, non persistant
         """
         brightness = int_to_bytes(brightness, 1)
-        return self._send(
+        return self._stable_send(
             SPHERO, SPHERO_COMMANDS['SET BACKLIGHT'], brightness, response)
 
     def get_color(self):
@@ -642,14 +652,14 @@ class Sphero(threading.Thread):
         """
         Tells the Shero to stop
         """
-        return self._send(SPHERO, SPHERO_COMMANDS['ROLL'], [0, 0, 0, 0], response)
+        return self._stable_send(SPHERO, SPHERO_COMMANDS['ROLL'], [0, 0, 0, 0], response)
 
     def boost(self, activate, response=True):
         """
         turns on boost
         """
         activate = 0x01 if activate else 0x00
-        return self._send(SPHERO, SPHERO_COMMANDS['BOOST'], [activate], response)
+        return self._stable_send(SPHERO, SPHERO_COMMANDS['BOOST'], [activate], response)
 
     def set_raw_motor_values(self, left_value, right_value, response=False):
         """
@@ -674,7 +684,7 @@ class Sphero(threading.Thread):
         if self._outside_range(timeout, 0, 0xFFFF):
             raise SpheroException("Timeout outside of valid range")
         timeout = int_to_bytes(timeout, 2)
-        return self._send(SPHERO, SPHERO_COMMANDS['MOTION TIMEOUT'], timeout, response)
+        return self._stable_send(SPHERO, SPHERO_COMMANDS['MOTION TIMEOUT'], timeout, response)
 
     def set_permanent_options(self, options, response=False):
         """
@@ -683,13 +693,13 @@ class Sphero(threading.Thread):
         @Param a permanentOption Object
         """
         options = int_to_bytes(options.bitflags, 8)
-        return self._send(SPHERO, SPHERO_COMMANDS['SET PERM OPTIONS'], options, response)
+        return self._stable_send(SPHERO, SPHERO_COMMANDS['SET PERM OPTIONS'], options, response)
 
     def get_permanent_options(self):
         """
         returns a teh Permenent Options of teh sphero
         """
-        result = self._send(
+        result = self._stable_send(
             SPHERO, SPHERO_COMMANDS['GET PERM OPTIONS'], [], True)
         if result.success:
             settings = struct.unpack_from('>Q', buffer(result.data))
@@ -712,7 +722,7 @@ class Sphero(threading.Thread):
         """
         returns if the sphero will stop when it is disconnected
         """
-        result = self._send(
+        result = self._stable_send(
             SPHERO, SPHERO_COMMANDS['GET TEMP OPTOINS'], [], True)
         if result.success:
             return Response(True, bool(result.data))
@@ -761,6 +771,9 @@ class Sphero(threading.Thread):
         event.set()
 
     def _sensor_data(self, data):
+        if self._data_stream is None:
+            self.stop_data_stream()
+            return
         parsed = self._data_stream.parse(data)
         self._sensor_callback(parsed)
 
