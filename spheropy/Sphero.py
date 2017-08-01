@@ -172,27 +172,30 @@ class Sphero(threading.Thread):
         packet = bytearray(2)
         while self.bluetooth.is_connected():
             # state one
-            packet[0] = 0
-            while packet[0] != SOP1:
-                packet[0] = self.bluetooth.receive(1)
+            try:
+                packet[0] = 0
+                while packet[0] != SOP1:
+                    packet[0] = self.bluetooth.receive(1)
 
-            # state two
-            packet[1] = self.bluetooth.receive(1)
-            packet_type = packet[1]
-            if packet_type == ACKNOWLEDGMENT:  # Sync Packet
-                self._handle_acknowledge()
+                # state two
+                packet[1] = self.bluetooth.receive(1)
+                packet_type = packet[1]
+                if packet_type == ACKNOWLEDGMENT:  # Sync Packet
+                    self._handle_acknowledge()
 
-            elif packet_type == ASYNC:
-                self._handle_async()
-            else:
-                eprint("Malformed Packet")
+                elif packet_type == ASYNC:
+                    self._handle_async()
+                else:
+                    eprint("Malformed Packet")
+            except SpheroException:
+                return
 
     def _handle_acknowledge(self):
         msrp = ord(self.bluetooth.receive(1))
         seq = ord(self.bluetooth.receive(1))
         length = ord(self.bluetooth.receive(1))
         if length == 0xff:
-            raise Exception("NOt Implemented")
+            raise Exception("NOt Implemented MSRP: {0}".format(msrp))
             # TODO cover oxff cases
         array = self._read(length, offset=3)
 
