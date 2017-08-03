@@ -195,7 +195,8 @@ class Sphero(threading.Thread):
         seq = ord(self.bluetooth.receive(1))
         length = ord(self.bluetooth.receive(1))
         if length == 0xff:
-            raise Exception("NOt Implemented MSRP: {0}".format(msrp))
+            pass
+            # raise Exception("NOt Implemented MSRP: {0}".format(msrp))
             # TODO cover oxff cases
         array = self._read(length, offset=3)
 
@@ -611,7 +612,6 @@ class Sphero(threading.Thread):
         Sets the color of ther sphero given rgb conbonants between 0 and 255,
         if default is true, sphero will default to that color when first connected
         """
-
         red = int_to_bytes(red, 1)
         blue = int_to_bytes(blue, 1)
         green = int_to_bytes(green, 1)
