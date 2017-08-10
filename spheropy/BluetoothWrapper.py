@@ -1,26 +1,28 @@
 #!/usr/bin/python
 """
-Wraps the bluetooth library for easy of use in sphero.
+Wrapper for pybluez.
 """
 import re
 import sys
 
 import bluetooth
-from spheropy.Exception import SpheroException
+from spheropy.Exception import BluetoothException
+from spheropy.Util import eprint
 
 
 class BluetoothWrapper(object):
     """
-    A class used to wrap the bluetooth connection to the sphero
+    A class used to wrap the bluetooth connection, for a RFCOMM connection.
     """
 
     @classmethod
     def find_free_devices(cls, tries=5, regex=".*?"):
         """
-        Finds a list of all available devices that match the given regex
-        @param tries: indicates the number of times to scan for bluetooth devices
-        @param regex: A regex used to match bluetooth device names,
-        @return: A dictionary from names to addresses
+        class method that returns a dictionary from names to address of available bluetotoh devices
+
+        `tries` indicates the number of times to scan for bluetooth devices
+
+        `regex` is used to filter bluetooth devices names
         """
         re_prog = re.compile(regex)
         result = {}
@@ -33,26 +35,37 @@ class BluetoothWrapper(object):
         return result
 
     def __init__(self, address, port):
+        """
+        `address` is the bluetooth address to connect to
+
+        `port` is the RFCOMM port to use
+        """
         self.address = address
         self.port = port
         self._socket = None
 
     def is_connected(self):
-        """ returns if the bluetooth has a connection """
+        """
+        Returns if the bluetooth has a connection
+
+        Even if this returns true, the connections is not guaranteed to be in a valid state.
+        """
         return self._socket is not None
 
-    def connect(self, address=None):
+    def connect(self, address=None, suppress_exceptions=False):
         """
-        Connects, attempts to connect to a sphero, address must be set,
-        or given as a keyword argument.
-        If a connection is all ready made it is closed, and a new one is started.
+        Returns True if a connection is successfully made, False otherwise
+
+        `address` is bluetooth address, that must be set or given as a keyword argument.
+
+        If `suppress_exceptions` is set to `True` exceptions thrown by the bluetooth library will be suppressed, and the function will return false
+
+        If there is a current connection it is closed before an attempt to connect is made.
         """
         if address is not None:
             self.address = address
 
-        if self._socket is not None:
-            self._socket.close()
-            self._socket = None
+        self.close()
 
         try:
             self._socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
@@ -61,39 +74,52 @@ class BluetoothWrapper(object):
         except bluetooth.BluetoothError as error:
             if self._socket is not None:
                 self._socket.close()
-            self._socket = None
-            raise SpheroException(error.message)
+                self._socket = None
+            if suppress_exceptions:
+                eprint(error.message)
+                return False
+            else:
+                raise BluetoothException(error.message)
         return False
 
     def send(self, msg):
         """
-        sends a message to the sphero
-        @param msg: a byte string
-        Blocks until message is sent.
+        Sends data to the connected bluetooth device. Will block until all the data is sent.
+
+        `msg` is a byte string
         """
         if self._socket is None:
-            raise SpheroException("Sphero is not connected")
+            raise BluetoothException("Device is not connected")
 
-        message_len = len(msg)
-        while message_len > 0:
-            sent_amount = self._socket.send(msg)
-            message_len -= sent_amount
-            msg = msg[sent_amount:]
+        try:
+            message_len = len(msg)
+            while message_len > 0:
+                sent_amount = self._socket.send(msg)
+                message_len -= sent_amount
+                msg = msg[sent_amount:]
+
+        except bluetooth.BluetoothError:
+            self.close()
 
     def receive(self, num_bytes):
         """
-        recieves data from Sphero, and returns it as a byte string
-        @param num_bytes, the number of bytes to request
-        @return a byte string with length less than num_bytes,
-        when sphero is disconnected, and all data is read, the empty string is returned.
-        Blocks until atleast one byte is available.
+        Returns data received data from bluetoth deviced as a byte string. If no device is connected an exception is thrown.
+
+        `num_bytes` refers to the number of bytes to request the amount returned may be less
+
+        When sphero is disconnected, and all data is read, the empty string is returned.
+        Blocks until at least one byte is available.
         """
         if self._socket is None:
-            raise SpheroException("Sphero is not connected")
+            raise BluetoothException("Device is not connected")
         try:
-            return self._socket.recv(num_bytes)
+            data = self._socket.recv(num_bytes)
+            if data == "":
+                self.close()
+            return data
         except bluetooth.BluetoothError as error:
-            raise SpheroException(
+            self.close()
+            raise BluetoothException(
                 "Unable to receive data due to bluetooth error: " + error.message)
 
     def close(self):

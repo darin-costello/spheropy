@@ -1,7 +1,7 @@
 # pylint: disable=c0111
 import unittest
 from spheropy.BluetoothWrapper import BluetoothWrapper
-from spheropy.Sphero import SpheroException
+from spheropy.Exception import BluetoothException
 import bluetooth
 
 
@@ -69,5 +69,5 @@ class BlueToothWrapperConnectTest(unittest.TestCase):
         self.assertTrue(True)
 
     def test_error(self):
-        with self.assertRaises(SpheroException):
+        with self.assertRaises(BluetoothException):
             self.wrapper.connect(address="fail")
