@@ -3,7 +3,6 @@
 Wrapper for pybluez.
 """
 import re
-import sys
 
 import bluetooth
 from spheropy.Exception import BluetoothException
@@ -98,8 +97,9 @@ class BluetoothWrapper(object):
                 message_len -= sent_amount
                 msg = msg[sent_amount:]
 
-        except bluetooth.BluetoothError:
+        except bluetooth.BluetoothError as error:
             self.close()
+            raise BluetoothException(error.message)
 
     def receive(self, num_bytes):
         """

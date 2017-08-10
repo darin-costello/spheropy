@@ -4,108 +4,137 @@ Tools for configuring and parsing sphero async data stream
 
 from collections import namedtuple
 import struct
-from math import pi
+import math
 
-ACC_RAW_MASK = 0xE0000000
-GYRO_RAW_MASK = 0x1C000000
-MOTOR_EMF_RAW_MASK = 0x00600000
-MOTOR_PWM_RAW_MASK = 0x00180000
-IMU_ANGLE_MASK = 0x00070000
-ACC_MASK = 0x0000E000
-GYRO_MASK = 0x00001C00
-MOTOR_EMF_MASK = 0x00000060
-QUATERNION_MASK = 0xF0000000
-ODOM_MASK = 0x0C000000
-ACCEL_ONE_MASK = 0x02000000
-VEL_MASK = 0x01800000
+_ACC_RAW_MASK = 0xE0000000
+_GYRO_RAW_MASK = 0x1C000000
+_MOTOR_EMF_RAW_MASK = 0x00600000
+_MOTOR_PWM_RAW_MASK = 0x00180000
+_IMU_ANGLE_MASK = 0x00070000
+_ACC_MASK = 0x0000E000
+_GYRO_MASK = 0x00001C00
+_MOTOR_EMF_MASK = 0x00000060
+_QUATERNION_MASK = 0xF0000000
+_ODOM_MASK = 0x0C000000
+_ACCEL_ONE_MASK = 0x02000000
+_VEL_MASK = 0x01800000
 
-ThreeD = namedtuple('ThreeD', ['x', 'y', 'z'])
-RandL = namedtuple('RandL', ['right', 'left'])
-LandR = namedtuple('LandR', ['left', 'right'])
-Angle = namedtuple('Angle', ['pitch', 'roll', 'yaw'])
-TwoD = namedtuple('TwoD', ['x', 'y'])
-Value = namedtuple('Value', ['value'])
-Quat = namedtuple('Quat', ['x', 'y', 'z', 'w'])
-DataInfo = namedtuple(
+_ThreeDimCoord = namedtuple('ThreeDimCoord', ['x', 'y', 'z'])
+_RightAndLeft = namedtuple('RightAndLeft', ['right', 'left'])
+_LeftAndRight = namedtuple('LeftAndRight', ['left', 'right'])
+_Angle = namedtuple('Angle', ['pitch', 'roll', 'yaw'])
+
+_TwoDimCoord = namedtuple('TwoDimCoord', ['x', 'y'])
+_Value = namedtuple('Value', ['value'])
+_Quaternion = namedtuple('Quaternion', ['x', 'y', 'z', 'w'])
+_DataInfo = namedtuple(
     'DataInfo', ['name', 'tuple', 'size', 'mask', 'conversion'])
 
-ACC_RAW_CONV = 4 * 1e-3  # 4mg -> g
-GYRO_RAW_CONV = 0.068 * (pi / 180.0)  # 0.068 degrees -> radians
-MOTOR_EMF_RAW_CONV = 22.5 * 1e-2  # 22.5cm -> m
-MOTOR_PMW_CONV = 1
-IMU_ANGE_CONV = pi / 180.0  # degress -> radians
-ACC_CONV = (1.0 / 4096.0) * 9.80665  # 1 /4096 G -> m/s^2
-GYRO_CONV = 0.1 * pi / 180.0  # 0.1 dps -> dps
-MOTOR_EMF_CONV = 22.5 * 1e-2
-QUATERNION_CONV = 1e-4  # 1/ 10000Q -> Q
-ODOM_CONV = 1e-2  # cm -> m
-ACCELONE_CONV = 1e-3 * 9.80665  # mG -> m/s^2
-VELOCITY_CONV = 1e-3  # mm/s -> m/s
-ORDER1 = [
-    DataInfo('acc_raw', ThreeD, 3, ACC_RAW_MASK, ACC_CONV),
-    DataInfo('gyro_raw', ThreeD, 3, GYRO_RAW_MASK, GYRO_RAW_CONV),
-    DataInfo('motor_emf_raw', RandL, 2,
-             MOTOR_EMF_RAW_MASK, MOTOR_EMF_RAW_CONV),
-    DataInfo('motor_pwm_raw', LandR, 2,
-             MOTOR_PWM_RAW_MASK, MOTOR_EMF_RAW_CONV),
-    DataInfo('imu_ange', Angle, 3, IMU_ANGLE_MASK, IMU_ANGE_CONV),
-    DataInfo('acc', ThreeD, 3, ACC_MASK, ACC_CONV),
-    DataInfo('gyro', ThreeD, 3, GYRO_MASK, GYRO_CONV),
-    DataInfo('motor_emf', RandL, 2, MOTOR_EMF_MASK, MOTOR_EMF_CONV),
+_ACC_RAW_CONV = 4 * 1e-3  # 4mg -> g
+_GYRO_RAW_CONV = 0.068 * (math.pi / 180.0)  # 0.068 degrees -> radians
+_MOTOR_EMF_RAW_CONV = 22.5 * 1e-2  # 22.5cm -> m
+_MOTOR_PMW_CONV = 1
+_IMU_ANGE_CONV = math.pi / 180.0  # degress -> radians
+_ACC_CONV = (1.0 / 4096.0) * 9.80665  # 1 /4096 G -> m/s^2
+_GYRO_CONV = 0.1 * math.pi / 180.0  # 0.1 dps -> dps
+_MOTOR_EMF_CONV = 22.5 * 1e-2
+_QUATERNION_CONV = 1e-4  # 1/ 10000Q -> Q
+_ODOM_CONV = 1e-2  # cm -> m
+_ACCELONE_CONV = 1e-3 * 9.80665  # mG -> m/s^2
+_VELOCITY_CONV = 1e-3  # mm/s -> m/s
+_ORDER1 = [
+    _DataInfo('acc_raw', _ThreeDimCoord, 3, _ACC_RAW_MASK, _ACC_CONV),
+    _DataInfo('gyro_raw', _ThreeDimCoord, 3, _GYRO_RAW_MASK, _GYRO_RAW_CONV),
+    _DataInfo('motor_emf_raw', _RightAndLeft, 2,
+              _MOTOR_EMF_RAW_MASK, _MOTOR_EMF_RAW_CONV),
+    _DataInfo('motor_pwm_raw', _LeftAndRight, 2,
+              _MOTOR_PWM_RAW_MASK, _MOTOR_EMF_RAW_CONV),
+    _DataInfo('imu_ange', _Angle, 3, _IMU_ANGLE_MASK, _IMU_ANGE_CONV),
+    _DataInfo('acc', _ThreeDimCoord, 3, _ACC_MASK, _ACC_CONV),
+    _DataInfo('gyro', _ThreeDimCoord, 3, _GYRO_MASK, _GYRO_CONV),
+    _DataInfo('motor_emf', _RightAndLeft, 2, _MOTOR_EMF_MASK, _MOTOR_EMF_CONV),
 ]
-ORDER2 = [
-    DataInfo('quaternion', Quat, 4, QUATERNION_MASK, QUATERNION_CONV),
-    DataInfo('odom', TwoD, 2, ODOM_MASK, ODOM_CONV),
-    DataInfo('accel_one', Value, 1, ACCEL_ONE_MASK, ACCELONE_CONV),
-    DataInfo('velocity', TwoD, 2, VEL_MASK, VELOCITY_CONV)
+_ORDER2 = [
+    _DataInfo('quaternion', _Quaternion, 4,
+              _QUATERNION_MASK, _QUATERNION_CONV),
+    _DataInfo('odom', _TwoDimCoord, 2, _ODOM_MASK, _ODOM_CONV),
+    _DataInfo('accel_one', _Value, 1, _ACCEL_ONE_MASK, _ACCELONE_CONV),
+    _DataInfo('velocity', _TwoDimCoord, 2, _VEL_MASK, _VELOCITY_CONV)
 ]
 
 
 class DataStreamManager(object):
     """
-    To be used to manage what data ther sphero streams back.
+    To be used to manage what data the sphero streams back.
     Currently it only supports setting all of a group at once,
-    so it isn't possible to request only z accelrometer, you get
-    all accelerometer values, so x, y, z. Anyting not marked raw,
-    has been filtered by the sphero.
-    With convert set to true, all measurements are converted to standard form,
-     Ie. meters g, and degrees,
-    otherwise they are left in the 'raw' form sent, which can be find in the api docs.
+    so it isn't possible to request only z accelerometer.
+    Anything not marked raw has been filtered by the sphero.
 
-    Data will be sent, (to the callback function) as an arraydictionary of named tuples.
-    the tuple fields are described below
+    All data members should be set to a boolean values, with
+    True indicating the data should be sent.
+
+    Data will be sent, (to the callback function registered with the sphero)
+    as a array of dictionary from strings to named tuples.
+    The tuple fields are described below, keys to the dictionary
+    are a string version of the name of its corresponding data memeber
+
+    ie. acc_raw data is  accessed by `dic["acc_raw"]` and so forth
+
+    ### Usage:
+
+        #!python
+        dsm = DataStreamManager()
+        dsm.acc = True
+        dsm.gyro = True
+        # dsm should then be be haned to a Sphero Object
+        sphero.set_data_stream(dsm, 10)
     """
 
     def __init__(self, number_frames=1, convert=True):
-        self.mask1 = 0x00000000
-        self.mask2 = 0x00000000
+        self._mask1 = 0x00000000
+        self._mask2 = 0x00000000
         self._format = ""
         self._tuples = []
         self.number_frames = number_frames
+        """
+         The number of dataframes to store before the sphero sends data,
+         only important when setting the datastream
+        """
         self.convert = convert
+        """
+        If convert is True the data is converted into standard measurments
+
+        acceleration => m/s^2
+
+        angles => radians
+
+        length => meters
+
+        otherwise the units on the data can be found in the orbotix documentation
+        """
 
     def _update_mask1(self, value, bitmask):
         if value:
-            self.mask1 |= bitmask
+            self._mask1 |= bitmask
         else:
-            self.mask1 &= (~ bitmask)
+            self._mask1 &= (~ bitmask)
         self.update()
 
     def _update_mask2(self, value, bitmask):
         if value:
-            self.mask2 |= bitmask
+            self._mask2 |= bitmask
         else:
-            self.mask2 &= (~ bitmask)
+            self._mask2 &= (~ bitmask)
         self.update()
 
     def copy(self):
         """
-        Creats a deep copy of this object,
-        update is called to ensure object is in valud state
+        Creates a deep copy of this object,
+        update is called to ensure object is in value state
         """
         stream = DataStreamManager()
-        stream.mask1 = self.mask1
-        stream.mask2 = self.mask2
+        stream._mask1 = self._mask1
+        stream._mask2 = self._mask2
         stream.convert = self.convert
         stream.number_frames = self.number_frames
         stream.update()
@@ -114,139 +143,163 @@ class DataStreamManager(object):
     @property
     def acc_raw(self):
         """
-        Has x,y,z, values
+        Raw accelerator data
+
+        Data tuple has x,y, z and values
         """
-        return bool(self.mask1 & ACC_RAW_MASK)
+        return bool(self._mask1 & _ACC_RAW_MASK)
 
     @acc_raw.setter
     def acc_raw(self, value):
-        self._update_mask1(value, ACC_RAW_MASK)
+        self._update_mask1(value, _ACC_RAW_MASK)
 
     @property
     def gyro_raw(self):
         """
-        Has x,y,z, values
+        Raw Gyroscope data
+
+        Data tuple has x,y, and z values
         """
-        return bool(self.mask1 & GYRO_RAW_MASK)
+        return bool(self._mask1 & _GYRO_RAW_MASK)
 
     @gyro_raw.setter
     def gyro_raw(self, value):
-        self._update_mask1(value, GYRO_RAW_MASK)
+        self._update_mask1(value, _GYRO_RAW_MASK)
 
     @property
     def motor_emf_raw(self):
         """
-        Has right and left values
+        Raw motor EMF data
+
+        Data tuple has right and left values
         """
 
-        return bool(self.mask1 & MOTOR_EMF_RAW_MASK)
+        return bool(self._mask1 & _MOTOR_EMF_RAW_MASK)
 
     @motor_emf_raw.setter
     def motor_emf_raw(self, value):
-        self._update_mask1(value, MOTOR_EMF_RAW_MASK)
+        self._update_mask1(value, _MOTOR_EMF_RAW_MASK)
 
     @property
     def motor_pwm_raw(self):
         """
-        Has right and left values
+        Raw Motor pwm data
+
+        Data tuple has right and left values
         """
-        return bool(self.mask1 & MOTOR_PWM_RAW_MASK)
+        return bool(self._mask1 & _MOTOR_PWM_RAW_MASK)
 
     @motor_pwm_raw.setter
     def motor_pwm_raw(self, value):
-        self._update_mask1(value, MOTOR_PWM_RAW_MASK)
+        self._update_mask1(value, _MOTOR_PWM_RAW_MASK)
 
     @property
     def imu_angle(self):
         """
-        has pitch roll and ya values
+        Imu data, filtered
+
+        Data tuple has pitch, roll, and yaw values
         """
-        return bool(self.mask1 & IMU_ANGLE_MASK)
+        return bool(self._mask1 & _IMU_ANGLE_MASK)
 
     @imu_angle.setter
     def imu_angle(self, value):
-        self._update_mask1(value, IMU_ANGLE_MASK)
+        self._update_mask1(value, _IMU_ANGLE_MASK)
 
     @property
     def acc(self):
         """
-        Filtered
-        Has x y and z values
+        Accelerometer, filtered
+
+        Data tuple has x y and z values
         """
-        return bool(self.mask1 & ACC_MASK)
+        return bool(self._mask1 & _ACC_MASK)
 
     @acc.setter
     def acc(self, value):
-        self._update_mask1(value, ACC_MASK)
+        self._update_mask1(value, _ACC_MASK)
 
     @property
     def gyro(self):
         """
-        filtered
-        Has x y and z values
+        Gyroscope, filtered
+
+        Data tuple has x y and z values
         """
-        return bool(self.mask1 & GYRO_MASK)
+        return bool(self._mask1 & _GYRO_MASK)
 
     @gyro.setter
     def gyro(self, value):
-        self._update_mask1(value, GYRO_MASK)
+        self._update_mask1(value, _GYRO_MASK)
 
     @property
     def motor_emf(self):
         """
-        filtered
-        has left and right vlaues
+        Motor EMF, filtered
+
+        Data tuple has left and right vlaues
         """
-        return bool(self.mask1 & MOTOR_EMF_MASK)
+        return bool(self._mask1 & _MOTOR_EMF_MASK)
 
     @motor_emf.setter
     def motor_emf(self, value):
-        self._update_mask1(value, MOTOR_EMF_MASK)
+        self._update_mask1(value, _MOTOR_EMF_MASK)
 
     @property
     def quaternion(self):
         """
-        has x y z and w values
+        Orientation in Quaternion
+
+        Data tuple has x, y, z, and w values
         """
-        return bool(self.mask2 & QUATERNION_MASK)
+        return bool(self._mask2 & _QUATERNION_MASK)
 
     @quaternion.setter
     def quaternion(self, value):
-        self._update_mask2(value, QUATERNION_MASK)
+        self._update_mask2(value, _QUATERNION_MASK)
 
     @property
     def odom(self):
         """
-        has x y values
+        Odomoter
+
+        Data tuple has x and y values
         """
-        return bool(self.mask2 & ODOM_MASK)
+        return bool(self._mask2 & _ODOM_MASK)
 
     @odom.setter
     def odom(self, value):
-        self._update_mask2(value, ODOM_MASK)
+        self._update_mask2(value, _ODOM_MASK)
 
     @property
     def accel_one(self):
-        """ has a single values between 0 and 8000
         """
-        return bool(self.mask2 & ACCEL_ONE_MASK)
+        Data tuple has a single value between 0 and 8000
+        """
+        return bool(self._mask2 & _ACCEL_ONE_MASK)
 
     @accel_one.setter
     def accel_one(self, value):
-        self._update_mask2(value, ACCEL_ONE_MASK)
+        self._update_mask2(value, _ACCEL_ONE_MASK)
 
     @property
     def velocity(self):
-        """ has x and y values"""
-        return bool(self.mask2 & VEL_MASK)
+        """
+        Velocity
+
+        Data tuple has x and y values"""
+        return bool(self._mask2 & _VEL_MASK)
 
     @velocity.setter
     def velocity(self, value):
-        self._update_mask2(value, VEL_MASK)
+        self._update_mask2(value, _VEL_MASK)
 
     def parse(self, data):
         """
-        Parses the given data stream and returns the result of an array of dictionarys
+        Parses the data stream given from the sphero and
+        returns the result as an array of dictionarys.
+
+        Each dictionary is a differnt data frame as sent from the sphero.
         """
         expected_items = (len(self._format) - 1) * 2
         assert len(data) == expected_items * self.number_frames
@@ -271,25 +324,25 @@ class DataStreamManager(object):
 
     def update(self):
         """
-        updates internals. This is called after each property is set.
-        If masks are eddited by hand the format string and the tuples list will need to be updated,
-        this can be done  But if you grab only part of a group you'll need to do it by hand.
+        updates internals variables to ensure data integrety.
+        This is called after each property is set.
+
         """
         self._update_format()
         self._update_list()
 
     def _update_format(self):
-        num_ones = self._num_ones(self.mask1) + self._num_ones(self.mask2)
+        num_ones = self._num_ones(self._mask1) + self._num_ones(self._mask2)
         self._format = ">" + "h" * num_ones
 
     def _update_list(self):
         tuples = []
-        for i in ORDER1:
-            if i.mask & self.mask1:
+        for i in _ORDER1:
+            if i.mask & self._mask1:
                 tuples.append(i)
 
-        for i in ORDER2:
-            if i.mask & self.mask2:
+        for i in _ORDER2:
+            if i.mask & self._mask2:
                 tuples.append(i)
         self._tuples = tuples
 
