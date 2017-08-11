@@ -57,7 +57,8 @@ class BluetoothWrapper(object):
 
         `address` is bluetooth address, that must be set or given as a keyword argument.
 
-        If `suppress_exceptions` is set to `True` exceptions thrown by the bluetooth library will be suppressed, and the function will return false
+        If `suppress_exceptions` is set to `True` exceptions thrown by the
+        bluetooth library will be suppressed, and the function will return false
 
         If there is a current connection it is closed before an attempt to connect is made.
         """
@@ -103,7 +104,8 @@ class BluetoothWrapper(object):
 
     def receive(self, num_bytes):
         """
-        Returns data received data from bluetoth deviced as a byte string. If no device is connected an exception is thrown.
+        Returns data received data from bluetoth deviced as a
+        byte string. If no device is connected an exception is thrown.
 
         `num_bytes` refers to the number of bytes to request the amount returned may be less
 
