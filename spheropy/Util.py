@@ -1,3 +1,7 @@
+"""
+Miscellaneous functions that used through the project
+"""
+
 from __future__ import print_function
 import sys
 

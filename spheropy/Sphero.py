@@ -15,7 +15,7 @@ from spheropy.Exception import SpheroException
 from spheropy.Options import PermanentOptions
 from spheropy.Util import nothing, outside_range, int_to_bytes, check_sum, eprint
 
-MSRP = {  # taken from sphero api docs
+_MSRP = {  # taken from sphero api docs
     0x00: "OK",  # succeeded
     0x01: "Error",  # non-specific error
     0x02: "Checksum Error",  # chucksum failure
@@ -36,14 +36,14 @@ MSRP = {  # taken from sphero api docs
 }
 
 
-SOP1 = 0xff
-ANSWER = 0xff
-NO_ANSWER = 0xfe
-ACKNOWLEDGMENT = 0xff
-ASYNC = 0xfe
+_SOP1 = 0xff
+_ANSWER = 0xff
+_NO_ANSWER = 0xfe
+_ACKNOWLEDGMENT = 0xff
+_ASYNC = 0xfe
 
-CORE = 0x00
-CORE_COMMANDS = {
+_CORE = 0x00
+_CORE_COMMANDS = {
     'PING': 0x01,
     'GET VERSIONING': 0x02,
     'SET NAME': 0x10,
@@ -61,8 +61,8 @@ CORE_COMMANDS = {
 
 }
 
-SPHERO = 0x02
-SPHERO_COMMANDS = {
+_SPHERO = 0x02
+_SPHERO_COMMANDS = {
     'SET HEADING': 0x01,
     'SET STABILIZATION': 0x02,
     'SET ROTATION RATE': 0x03,
@@ -106,28 +106,61 @@ class MotorState(Enum):
 
 
 class Sphero(threading.Thread):
-    """ class representing a sphero """
+    """
+    Class representing a sphero. Can be used in a `with` block or explicitly
+
+    ### Usage:
+
+        #!python
+        # explicit managment
+        s = Sphero("name", "address")
+        s.connect()
+        s.roll(50, 0)
+        s.exit()
+
+        # context manager
+        with Sphero("name", "address") as s:
+            s.roll(50, 0)
+    """
 # Static Methods
 
     @classmethod
     def find_spheros(cls, tries=5):
         """
         Returns a dictionary from names to addresses of all available spheros
+        `tries` indicates the number of scans to perform before returning results
         """
         return BluetoothWrapper.find_free_devices(tries=tries, regex="[Ss]phero")
 
 
 # Working
     def __init__(self, name, address, port=1, response_time_out=1, number_tries=5):
+        """
+        `name` is mostly used in printing error and information messages, usefull when working with
+        more then one sphero.
+
+        `address` is the bluetooth address and `port` is the RFCOMM port to use every sphero I've used
+        uses port 1 so you unless you have trouble connectng it shouldn't need to change.
+
+        `response_time_out` indicates how long to wait in seconds for a response after a message
+        that expects a response is sent ,it does not include sendng time.
+
+        Any command will be sent up to `number_tries` untill it is successful. This only happens
+        if a response is expected, otherwise it's sent once.  A single command
+        with a response may block for up to `response_time_out` X `number_tries` seconds
+        """
         super(Sphero, self).__init__()
         self.bluetooth = BluetoothWrapper(address, port)
+        """ access to bluetooth wrapper, avoid using """
         self.suppress_exception = False
+        """ suppress_exceptions when used in `with` block """
         self._seq_num = 0
         self.number_tries = number_tries
+        """ number of times to try and send a message """
 
         self._msg_lock = threading.Lock()
         self._msg = bytearray(2048)
-        self._msg[0] = SOP1
+        self._msg[0] = _SOP1
 
         self._response_lock = threading.Lock()
         self._response_event_lookup = {}
@@ -149,6 +182,7 @@ class Sphero(threading.Thread):
         self._collision_callback = nothing
 
     def __enter__(self):
+        """ for use in contex manager """
         connected = False
         tries = 0
         while not connected and tries < self.number_tries:
@@ -164,26 +198,27 @@ class Sphero(threading.Thread):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """ for use in context manager """
         self.disconnect()
         return self.suppress_exception
 
     def _recieve_loop(self):
-
+        """ recieves data from sphero and parses it"""
         packet = bytearray(2)
         while self.bluetooth.is_connected():
             # state one
             try:
                 packet[0] = 0
-                while packet[0] != SOP1:
+                while packet[0] != _SOP1:
                     packet[0] = self.bluetooth.receive(1)
 
                 # state two
                 packet[1] = self.bluetooth.receive(1)
                 packet_type = packet[1]
-                if packet_type == ACKNOWLEDGMENT:  # Sync Packet
+                if packet_type == _ACKNOWLEDGMENT:  # Sync Packet
                     self._handle_acknowledge()
 
-                elif packet_type == ASYNC:
+                elif packet_type == _ASYNC:
                     self._handle_async()
                 else:
                     eprint("Malformed Packet")
@@ -191,12 +226,19 @@ class Sphero(threading.Thread):
                 return
 
     def _handle_acknowledge(self):
+        """
+        Parses response packets from sphero. Response added to a response dictionary
+        as a Response tuple where tuple[0] indicates success and tuple[1] is the data,
+        the thread waiting on the response is alerted to it via an event registered
+        in the response_event_lookup dictionary, and is responsible for parsing the data.
+        all access should be done with the response_lock.
+        """
         msrp = ord(self.bluetooth.receive(1))
         seq = ord(self.bluetooth.receive(1))
         length = ord(self.bluetooth.receive(1))
         if length == 0xff:
             pass
-            # raise Exception("NOt Implemented MSRP: {0}".format(msrp))
+            # raise Exception("NOt Implemented _MSRP: {0}".format(_msrp))
             # TODO cover oxff cases
         array = self._read(length, offset=3)
 
@@ -220,10 +262,15 @@ class Sphero(threading.Thread):
                 self._responses[seq] = Response(True, array[3: length + 3 - 1])
             else:
                 self._responses[seq] = Response(
-                    False, MSRP.get(msrp, "UNKNOWN ERROR"))
+                    False, _MSRP.get(msrp, "UNKNOWN ERROR"))
             event.set()
 
     def _handle_async(self):
+        """
+        Handles async (usually sensor) messages form sphero,
+        It calls the a parser function which will call any regstered
+        callback for each type of data
+        """
         id_code = ord(self.bluetooth.receive(1))
         length_msb = ord(self.bluetooth.receive(1))
         length_lsb = ord(self.bluetooth.receive(1))
@@ -247,6 +294,9 @@ class Sphero(threading.Thread):
             return
 
     def _read(self, length, offset=0):
+        """
+        reads a given length from the bluetooth, into a buffer, starting at a given offset
+        """
         array = bytearray(offset)
         to_read = length
         while to_read > 0:
@@ -257,12 +307,25 @@ class Sphero(threading.Thread):
 
     @property
     def _seq(self):
+        """
+        used for assigning unique seq numbers
+        """
         self._seq_num += 1
         if self._seq_num > 0xff:
             self._seq_num = 1
         return self._seq_num
 
     def _send(self, did, cid, data, response):
+        """
+        sends data to sphero `did` is the device id, `cid` is the virtual core id
+        for more information view sphero Docs.
+
+        `data` is the data to send
+
+        `response` indicates if a response is expected or not if it is it handles
+        working with the event system, and blocks until response is recieved,
+        or `self.response_time_out` elapses
+        """
         event = None
         seq_number = 0
         data_length = len(data)
@@ -273,7 +336,7 @@ class Sphero(threading.Thread):
                 self._response_event_lookup[seq_number] = event
 
         with self._msg_lock:
-            self._msg[1] = ANSWER if response else NO_ANSWER
+            self._msg[1] = _ANSWER if response else _NO_ANSWER
             self._msg[2] = did
             self._msg[3] = cid
             self._msg[4] = seq_number
@@ -293,18 +356,23 @@ class Sphero(threading.Thread):
 
     def connect(self):
         """
-        Connects to the sphero with the given address
+        Establishes a connection and
+        returns a boolean indicating if the connection was successful
         """
         return self.bluetooth.connect()
 
     def disconnect(self):
         """
-        Closes the connection to the sphero,
-        if sphero is not connected call has no effect
+        Closes the connection to the sphero.
+        If sphero is not connected the call has no effect
         """
         self.bluetooth.close()
 
     def _stable_send(self, did, cid, data, response):
+        """
+        A version of send that tries untill successful
+        if response is false it will only try once
+        """
         tries = 0
         success = False
         reply = None
@@ -313,7 +381,7 @@ class Sphero(threading.Thread):
             tries += 1
             success = reply.success
         return reply
-# CORE COMMANDS
+# _CORE COMMANDS
 
     def ping(self, response=True):
         """
@@ -321,14 +389,14 @@ class Sphero(threading.Thread):
         and that Sphero is awake and dispatching commands.
         returns true if a response is recieved and was requested, false otherwise
         """
-        reply = self._send(CORE, CORE_COMMANDS['PING'], [], response)
+        reply = self._send(_CORE, _CORE_COMMANDS['PING'], [], response)
         return reply
 
     def get_versioning(self):
         """
         Returns a tuple of the bytes of the versioning info see Sphero api docs for more info.
         """
-        reply = self._send(CORE, CORE_COMMANDS['GET VERSIONING'], [], True)
+        reply = self._send(_CORE, _CORE_COMMANDS['GET VERSIONING'], [], True)
         if reply.success:
             parsed = struct.unpack_from(">8B", buffer(reply.data))
             return Response(True, parsed)
@@ -338,20 +406,20 @@ class Sphero(threading.Thread):
     def set_device_name(self, name, response=False):
         """
         This assigned name is held internally and produced as part of the Get Bluetooth Info
-        service below. Names are clipped at 48 characters in length to support UTF-8 sequences
+        service below. Names are clipped at 48 characters in length to support UTF - 8 sequences
         you can send something longer but the extra will be discarded.
         This field defaults to the Bluetooth advertising name.
         """
-        return self._send(CORE, CORE_COMMANDS['SET NAME'], name, response)
+        return self._send(_CORE, _CORE_COMMANDS['SET NAME'], name, response)
 
     def get_bluetooth_info(self):
         """
-        This returns a structure containing the textual name of the ball (defaults to the Bluetooth
+        This returns a structure containing the textual name of the ball(defaults to the Bluetooth
         advertising name but can be changed), the Bluetooth address and
         the ID colors the ball blinks when not connected
         """
         result = self._send(
-            CORE, CORE_COMMANDS['GET BLUETOOTH INFO'], [], True)
+            _CORE, _CORE_COMMANDS['GET BLUETOOTH INFO'], [], True)
         if result.success:
             fmt = ">16s12sx3c"
             temp_tup = struct.unpack_from(fmt, buffer(result.data))
@@ -367,7 +435,7 @@ class Sphero(threading.Thread):
         """
         If successful returns a PowerState tuple with the following fields in this order.
             recVer: set to 1
-            powerState: 1= Charging, 2 = OK, 3 = Low, 4 = Critical
+            powerState: 1 = Charging, 2 = OK, 3 = Low, 4 = Critical
             batt_voltage: current battery voltage in 100ths of a volt
             num_charges: number of recharges in the lilfe of this sphero
             time_since_chg: seconds Awake
@@ -377,7 +445,7 @@ class Sphero(threading.Thread):
         thus it may block for up to 'response_time_out X number_tries' seconds
         """
         reply = self._stable_send(
-            CORE, CORE_COMMANDS['GET POWER STATE'], [], True)
+            _CORE, _CORE_COMMANDS['GET POWER STATE'], [], True)
         if reply.success:
             parsed_answer = struct.unpack_from('>BBHHH', buffer(reply.data))
             return PowerState._make(parsed_answer)
@@ -390,7 +458,7 @@ class Sphero(threading.Thread):
         """
         flag = 0x01 if setting else 0x00
         reply = self._stable_send(
-            CORE, CORE_COMMANDS['SET POWER NOTIFICATION'], [flag], response)
+            _CORE, _CORE_COMMANDS['SET POWER NOTIFICATION'], [flag], response)
         return reply
 
     def sleep(self, wakeup_time, response=False):
@@ -404,7 +472,7 @@ class Sphero(threading.Thread):
             return False
         big = wakeup_time >> 8
         little = (wakeup_time & 0x00ff)
-        reply = self._send(CORE, CORE_COMMANDS['SLEEP'], [
+        reply = self._send(_CORE, _CORE_COMMANDS['SLEEP'], [
             big, little, 0, 0, 0], response)
 
         return reply
@@ -416,7 +484,7 @@ class Sphero(threading.Thread):
         so the defaults of 7.00V and 6.50V respectively are returned as
         700 and 650.
         """
-        reply = self._send(CORE, CORE_COMMANDS['GET VOLTAGE TRIP'], [], True)
+        reply = self._send(_CORE, _CORE_COMMANDS['GET VOLTAGE TRIP'], [], True)
         if reply.success:
             parse = struct.unpack_from(">HH", buffer(reply.data))
             return Response(True, parse)
@@ -427,16 +495,16 @@ class Sphero(threading.Thread):
         """
         not implemented
         This assigns the voltage trip points for Low and Critical battery voltages.
-        The values are specified in  100ths of a volt and
+        The values are specified in 100ths of a volt and
         the limitations on adjusting these away from their defaults are:
-        Vlow must be in the range 675 to 725 (+=25)
-        Vcrit must be in the range 625 to 675 (+=25)
+        Vlow must be in the range 675 to 725 ( += 25)
+        Vcrit must be in the range 625 to 675 ( += 25)
         There must be 0.25V of separation between the two values
         """
         assert False
         low = int_to_bytes(low, 2)
         crit = int_to_bytes(critical, 2)
-        return self._send(CORE, CORE_COMMANDS['SET VOLTAGE TRIP'], low + crit, response)
+        return self._send(_CORE, _CORE_COMMANDS['SET VOLTAGE TRIP'], low + crit, response)
 
     def set_inactivity_timeout(self, timeout, response=False):
         """
@@ -447,14 +515,14 @@ class Sphero(threading.Thread):
 
         big = timeout >> 8
         little = (timeout & 0x00ff)
-        reply = self._send(CORE, CORE_COMMANDS['SET INACT TIMEOUT'], [
+        reply = self._send(_CORE, _CORE_COMMANDS['SET INACT TIMEOUT'], [
             big, little], response)
 
         return reply
 
     def L1_diag(self):
         """
-        This is a developer-level command to help diagnose aberrant behavior.
+        This is a developer - level command to help diagnose aberrant behavior.
         Most system counters, process flags, and system states are decoded
         into human readable ASCII.
         """
@@ -463,7 +531,7 @@ class Sphero(threading.Thread):
             event = threading.Event()
             self._response_event_lookup['L1'] = event
 
-        self._send(CORE, CORE_COMMANDS['L1'], [], False)
+        self._send(_CORE, _CORE_COMMANDS['L1'], [], False)
 
         if event.wait(self._response_time_out * 10):
             response = None
@@ -475,28 +543,28 @@ class Sphero(threading.Thread):
 
     def L2_diag(self):
         """
-        This is a developers-only command to help diagnose aberrant behavior.
+        This is a developers - only command to help diagnose aberrant behavior.
         It is much less informative than the Level 1 command
         but it is in binary format and easier to parse
         Command not found
         """
 
         assert False
-        return self._send(CORE, CORE_COMMANDS['L2'], [], True)
+        return self._send(_CORE, _CORE_COMMANDS['L2'], [], True)
 
     def assign_time(self, time_value, response=False):
         """
         Sets the internal timer to the given time.
         this is the time that shows up in a collision message
         """
-        return self._send(CORE, CORE_COMMANDS['ASSIGN TIME'], int_to_bytes(time_value, 4), response)
+        return self._send(_CORE, _CORE_COMMANDS['ASSIGN TIME'], int_to_bytes(time_value, 4), response)
 
     def poll_packet_times(self):
         """
         Command to help profile latencies
         returns a PacketTime tuple with fields:
-        offset : the maximum-likelihood time offset of the Client clock to sphero's system clock
-        delay: round-trip delay between client a sphero
+        offset: the maximum - likelihood time offset of the Client clock to sphero's system clock
+        delay: round - trip delay between client a sphero
         """
         # TODO time 1 gets mangled.
         time1 = int(round(time.time() * 1000))
@@ -504,7 +572,7 @@ class Sphero(threading.Thread):
         bit2 = (time1 & 0x00ff0000) >> 16
         bit3 = (time1 & 0x0000ff00) >> 8
         bit4 = (time1 & 0x000000ff)
-        reply = self._stable_send(CORE, CORE_COMMANDS['POLL PACKET TIMES'], [
+        reply = self._stable_send(_CORE, _CORE_COMMANDS['POLL PACKET TIMES'], [
             bit1, bit2, bit3, bit4], True)
         time4 = int(round(time.time() * 1000)) & 0xffffffff
         if reply.success:
@@ -515,7 +583,7 @@ class Sphero(threading.Thread):
                 (sphero_time[2] - sphero_time[1])
             return PacketTime(offset, delay)
 
-# SPHERO COMMANDS
+# _SPHERO COMMANDS
 
     def set_heading(self, heading, response=False):
         """
@@ -527,7 +595,7 @@ class Sphero(threading.Thread):
 
         heading_bytes = int_to_bytes(heading, 2)
         reply = self._stable_send(
-            SPHERO, SPHERO_COMMANDS['SET HEADING'], heading_bytes, response)
+            _SPHERO, _SPHERO_COMMANDS['SET HEADING'], heading_bytes, response)
         return reply
 
     def set_stabilization(self, stablize, response=False):
@@ -537,13 +605,13 @@ class Sphero(threading.Thread):
         An error is returned if the sensor network is dead;
         """
         flag = 0x01 if stablize else 0x00
-        return self._stable_send(SPHERO, SPHERO_COMMANDS['SET STABILIZATION'], [flag], response)
+        return self._stable_send(_SPHERO, _SPHERO_COMMANDS['SET STABILIZATION'], [flag], response)
 
     def set_rotation_rate(self, rate, response=False):
         """
         sets the roation rate sphero will use to meet new heading commands
         Lower value offers better control, with a larger turning radius
-        rate should be in degrees/sec, above 199 the maxium value is used(400 degrees/sec)
+        rate should be in degrees / sec, above 199 the maxium value is used(400 degrees / sec)
         """
         # TODO returns unknown command
         if rate < 0:
@@ -553,14 +621,14 @@ class Sphero(threading.Thread):
         else:
             rate = int(rate / 0.784)
         to_bytes = int_to_bytes(rate, 1)
-        return self._send(SPHERO, SPHERO_COMMANDS['SET ROTATION RATE'], to_bytes, response)
+        return self._send(_SPHERO, _SPHERO_COMMANDS['SET ROTATION RATE'], to_bytes, response)
 
     def get_chassis_id(self):
         """
         Returns the Chassis ID,
         """
         response = self._send(
-            SPHERO, SPHERO_COMMANDS['GET CHASSIS ID'], [], True)
+            _SPHERO, _SPHERO_COMMANDS['GET CHASSIS ID'], [], True)
 
         if response.success:
             tup = struct.unpack_from('>H', buffer(response.data))
@@ -578,13 +646,13 @@ class Sphero(threading.Thread):
         mask1 = int_to_bytes(self._data_stream.mask1, 4)
         mask2 = int_to_bytes(self._data_stream.mask2, 4)
         data = divisor + samples + mask1 + [packet_count] + mask2
-        return self._stable_send(SPHERO, SPHERO_COMMANDS['SET DATA STRM'], data, response)
+        return self._stable_send(_SPHERO, _SPHERO_COMMANDS['SET DATA STRM'], data, response)
 
     def stop_data_stream(self):
         """
         stops data streaming
         """
-        result = self._stable_send(SPHERO, SPHERO_COMMANDS['SET DATA STRM'], [
+        result = self._stable_send(_SPHERO, _SPHERO_COMMANDS['SET DATA STRM'], [
                                    0xff, 0, 0, 0, 0, 0, 0, 0, 1], True)
         if result.success:
             self._data_stream = None
@@ -594,18 +662,18 @@ class Sphero(threading.Thread):
         """
         Starts, collision detection, threshold values represent the max threshold,
         and speed is added to thersholds ranged by the spheros speed,
-        dead is post-collision dead time,
+        dead is post - collision dead time,
         in ms. all data must be in the range 0...255
         """
         method = 0x01
         dead = int(dead / 10)
-        return self._stable_send(SPHERO, SPHERO_COMMANDS['SET COLLISION DETECT'], [method, x_threshold, x_speed, y_threshold, y_speed, dead], response)
+        return self._stable_send(_SPHERO, _SPHERO_COMMANDS['SET COLLISION DETECT'], [method, x_threshold, x_speed, y_threshold, y_speed, dead], response)
 
     def stop_collision_detection(self, response=False):
         """
         Stops collision detection
         """
-        return self._send(SPHERO, SPHERO_COMMANDS['SET COLLISION DETECT'], [0, 0, 0, 0, 0, 0], response)
+        return self._send(_SPHERO, _SPHERO_COMMANDS['SET COLLISION DETECT'], [0, 0, 0, 0, 0, 0], response)
 
     def set_color(self, red, green, blue, default=False, response=False):
         """
@@ -617,7 +685,7 @@ class Sphero(threading.Thread):
         green = int_to_bytes(green, 1)
         flag = [0x01] if default else [0x00]
         return self._stable_send(
-            SPHERO, SPHERO_COMMANDS['SET COLOR'], red + green + blue + flag, response)
+            _SPHERO, _SPHERO_COMMANDS['SET COLOR'], red + green + blue + flag, response)
 
     def set_back_light(self, brightness, response=False):
         """
@@ -625,13 +693,13 @@ class Sphero(threading.Thread):
         """
         brightness = int_to_bytes(brightness, 1)
         return self._stable_send(
-            SPHERO, SPHERO_COMMANDS['SET BACKLIGHT'], brightness, response)
+            _SPHERO, _SPHERO_COMMANDS['SET BACKLIGHT'], brightness, response)
 
     def get_color(self):
         """
         returns the default sphero color, may not be the current color shown
         """
-        response = self._send(SPHERO, SPHERO_COMMANDS['GET COLOR'], [], True)
+        response = self._send(_SPHERO, _SPHERO_COMMANDS['GET COLOR'], [], True)
         if response.success:
             parse = struct.unpack_from('>BBB', buffer(response.data))
             return Response(True, Color._make(parse))
@@ -645,20 +713,20 @@ class Sphero(threading.Thread):
         gobit = [0x02] if fast_rotate else [0x01]
         speed = int_to_bytes(speed, 1)
         heading = int_to_bytes(heading, 2)
-        return self._send(SPHERO, SPHERO_COMMANDS['ROLL'], speed + heading + gobit, response)
+        return self._send(_SPHERO, _SPHERO_COMMANDS['ROLL'], speed + heading + gobit, response)
 
     def stop(self, response=False):
         """
         Tells the Shero to stop
         """
-        return self._stable_send(SPHERO, SPHERO_COMMANDS['ROLL'], [0, 0, 0, 0], response)
+        return self._stable_send(_SPHERO, _SPHERO_COMMANDS['ROLL'], [0, 0, 0, 0], response)
 
     def boost(self, activate, response=True):
         """
         turns on boost
         """
         activate = 0x01 if activate else 0x00
-        return self._stable_send(SPHERO, SPHERO_COMMANDS['BOOST'], [activate], response)
+        return self._stable_send(_SPHERO, _SPHERO_COMMANDS['BOOST'], [activate], response)
 
     def set_raw_motor_values(self, left_value, right_value, response=False):
         """
@@ -672,7 +740,7 @@ class Sphero(threading.Thread):
         if outside_range(lpower, 0, 255) or outside_range(rpower, 0, 255):
             raise SpheroException("Values outside of range")
         data = [lmode, lpower, rmode, rpower]
-        return self._send(SPHERO, SPHERO_COMMANDS['SET RAW MOTOR'], data, response)
+        return self._send(_SPHERO, _SPHERO_COMMANDS['SET RAW MOTOR'], data, response)
 
     def set_motion_timeout(self, timeout, response=False):
         """
@@ -683,23 +751,24 @@ class Sphero(threading.Thread):
         if self._outside_range(timeout, 0, 0xFFFF):
             raise SpheroException("Timeout outside of valid range")
         timeout = int_to_bytes(timeout, 2)
-        return self._stable_send(SPHERO, SPHERO_COMMANDS['MOTION TIMEOUT'], timeout, response)
+        return self._stable_send(_SPHERO, _SPHERO_COMMANDS['MOTION TIMEOUT'], timeout, response)
 
     def set_permanent_options(self, options, response=False):
         """
         Set Options, for option information see PermanentOptionFlag docs.
         Options persist across power cycles
+
         @Param a permanentOption Object
         """
         options = int_to_bytes(options.bitflags, 8)
-        return self._stable_send(SPHERO, SPHERO_COMMANDS['SET PERM OPTIONS'], options, response)
+        return self._stable_send(_SPHERO, _SPHERO_COMMANDS['SET PERM OPTIONS'], options, response)
 
     def get_permanent_options(self):
         """
         returns a teh Permenent Options of teh sphero
         """
         result = self._stable_send(
-            SPHERO, SPHERO_COMMANDS['GET PERM OPTIONS'], [], True)
+            _SPHERO, _SPHERO_COMMANDS['GET PERM OPTIONS'], [], True)
         if result.success:
             settings = struct.unpack_from('>Q', buffer(result.data))
             options = PermanentOptions()
@@ -714,7 +783,7 @@ class Sphero(threading.Thread):
         set value to false to turn off behavior
         """
         value = 1 if value else 0
-        return self._send(SPHERO, SPHERO_COMMANDS['SET TEMP OPTIONS'], [
+        return self._send(_SPHERO, _SPHERO_COMMANDS['SET TEMP OPTIONS'], [
             0, 0, 0, value], response)
 
     def will_stop_on_disconnect(self):
@@ -722,7 +791,7 @@ class Sphero(threading.Thread):
         returns if the sphero will stop when it is disconnected
         """
         result = self._stable_send(
-            SPHERO, SPHERO_COMMANDS['GET TEMP OPTOINS'], [], True)
+            _SPHERO, _SPHERO_COMMANDS['GET TEMP OPTOINS'], [], True)
         if result.success:
             return Response(True, bool(result.data))
         else:

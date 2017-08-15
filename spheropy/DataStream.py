@@ -83,6 +83,7 @@ class DataStreamManager(object):
     ### Usage:
 
         #!python
+
         dsm = DataStreamManager()
         dsm.acc = True
         dsm.gyro = True
