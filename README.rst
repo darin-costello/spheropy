@@ -6,7 +6,8 @@ A driver for sphero 2.0 written entirely in python. Currently it provides access
 
 **INSTALL:**
 
-::
+.. code-block:: bash
+
     git clone https://github.com/darin-costello/spheropy.git
 
     cd spheropy
