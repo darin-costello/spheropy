@@ -4,6 +4,15 @@ Unofficial Python SDK for Sphero
 
 A driver for sphero 2.0 written entirely in python. Currently it provides access to most sphero api calls as described in the `Orbotix Documentation <https://github.com/orbotix/DeveloperResources>`.
 
+**INSTALL:**
+
+::
+    git clone https://github.com/darin-costello/spheropy.git
+
+    cd spheropy
+
+    pip install -e ./
+
 **EXAMPLES:**
 
 .. code-block:: python
