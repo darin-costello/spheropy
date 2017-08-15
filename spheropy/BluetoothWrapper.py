@@ -17,11 +17,11 @@ class BluetoothWrapper(object):
     @classmethod
     def find_free_devices(cls, tries=5, regex=".*?"):
         """
-        class method that returns a dictionary from names to address of available bluetotoh devices
+        A Class method that returns a dictionary from names to address of available bluetotoh devices.
 
-        `tries` indicates the number of times to scan for bluetooth devices
+        `tries` indicates the number of times to scan for bluetooth devices.
 
-        `regex` is used to filter bluetooth devices names
+        `regex` is used to filter bluetooth devices names.
         """
         re_prog = re.compile(regex)
         result = {}
@@ -45,7 +45,7 @@ class BluetoothWrapper(object):
 
     def is_connected(self):
         """
-        Returns if the bluetooth has a connection
+        Returns if the bluetooth has a connection.
 
         Even if this returns true, the connections is not guaranteed to be in a valid state.
         """
@@ -53,17 +53,20 @@ class BluetoothWrapper(object):
 
     def connect(self, address=None, suppress_exceptions=False):
         """
-        Returns True if a connection is successfully made, False otherwise
+        Returns True if a connection is successfully made, False otherwise.
 
-        `address` is bluetooth address, that must be set or given as a keyword argument.
+        `address` is bluetooth address, that must be set previously or given as a keyword argument.
 
         If `suppress_exceptions` is set to `True` exceptions thrown by the
-        bluetooth library will be suppressed, and the function will return false
+        bluetooth library will be suppressed, and the function will return false.
 
         If there is a current connection it is closed before an attempt to connect is made.
         """
         if address is not None:
             self.address = address
+
+        if self.address is None:
+            return False
 
         self.close()
 
@@ -104,10 +107,10 @@ class BluetoothWrapper(object):
 
     def receive(self, num_bytes):
         """
-        Returns data received data from bluetoth deviced as a
+        Received data from bluetoth deviced and returns it as a
         byte string. If no device is connected an exception is thrown.
 
-        `num_bytes` refers to the number of bytes to request the amount returned may be less
+        `num_bytes` refers to the number of bytes to read the amount returned may be less
 
         When sphero is disconnected, and all data is read, the empty string is returned.
         Blocks until at least one byte is available.

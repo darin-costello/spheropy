@@ -111,20 +111,22 @@ class MotorState(Enum):
     ignore = 0x04
 
 
-class Sphero(threading.Thread):
+class Sphero(object):
     """
-    Class representing a sphero. Can be used in a `with` block or explicitly
+    Class representing a sphero. Can be used in a `with` block or managed explicitly.
 
     All direct sphero commands will return a `Response` object. where `response.success`
-    indicates if the command ran successfully. and `response.data` will contain the
-    data of the response. Other returns will be specified
+    indicates if the command ran successfully, and `response.data` will contain the
+    data of the response or what went wrong. Other returns will be specified
 
     ### Usage:
 
         #!python
+        from spheropy.Sphero import Sphero
         # explicit managment
         s = Sphero("Sphero-YWY", "68:86:E7:07:59:71")
         s.connect()
+        s.start() # starts receiving data from sphero
         s.roll(50, 0)
         s.exit()
 
@@ -138,7 +140,16 @@ class Sphero(threading.Thread):
     def find_spheros(cls, tries=5):
         """
         Returns a dictionary from names to addresses of all available spheros
-        `tries` indicates the number of scans to perform before returning results
+        `tries` indicates the number of scans to perform before returning results.
+
+        ### Usage:
+
+            #!python
+            from spheropy.Sphero import Sphero
+
+            found_spheros = Sphero.find_spheros()
+            for key, value in found_sphero.iteritems():
+                print("Name: {}\tAddress: {}".format(key, value))
         """
         return BluetoothWrapper.find_free_devices(tries=tries, regex="[Ss]phero")
 
@@ -166,7 +177,7 @@ class Sphero(threading.Thread):
         """ suppress_exceptions when used in `with` block """
         self._seq_num = 0
         self.number_tries = number_tries
-        """ number of times to try and send a message """
+        """ number of times to try to send a command to sphero """
 
         self._msg_lock = threading.Lock()
         self._msg = bytearray(2048)
@@ -176,6 +187,8 @@ class Sphero(threading.Thread):
         self._response_event_lookup = {}
         self._responses = {}
         self._response_time_out = response_time_out
+
+        self._recieve_thread = threading.Thread(target=self._recieve_loop)
 
         self._data_stream = None
         self._asyn_func = {
@@ -197,10 +210,10 @@ class Sphero(threading.Thread):
         tries = 0
         while not connected and tries < self.number_tries:
             try:
-                self.connect()
-                connected = True
+                connected = self.bluetooth.connect(suppress_exceptions=True)
             except SpheroException:
-                tries += 1
+                pass
+            tries += 1
         if tries >= self.number_tries:
             raise SpheroException("Unable to connect to sphero")
 
@@ -367,14 +380,14 @@ class Sphero(threading.Thread):
     def connect(self):
         """
         Establishes a connection and
-        returns a boolean indicating if the connection was successful
+        returns a boolean indicating if the connection was successful.
         """
         return self.bluetooth.connect()
 
     def disconnect(self):
         """
         Closes the connection to the sphero.
-        If sphero is not connected the call has no effect
+        If sphero is not connected the call has no effect.
         """
         self.bluetooth.close()
 
@@ -399,11 +412,13 @@ class Sphero(threading.Thread):
         and that Sphero is awake and dispatching commands.
 
         A Response tuple is returned with response.success indicating if a response
-        is received back fromt he sphero, there is no accompanying data
+        is received back from the sphero, there is no accompanying data.
 
         # Usage
 
             #!python
+            from spheropy.Sphero import Sphero
+
             with Sphero("Sphero-YWY", "68:86:E7:07:59:71") as s:
                 response = s.ping()
                 print(response.success)
@@ -413,7 +428,7 @@ class Sphero(threading.Thread):
 
     def get_versioning(self):
         """
-        A Response tuple is returned, if `response.success == True`,
+        A Response tuple is returned, if `response.success == True`, then
         `response.data` will contain a tuple of the bytes of the versioning info.
 
         see Sphero api docs for more info.
@@ -445,7 +460,7 @@ class Sphero(threading.Thread):
         is a BluetoothInfo object containing the textual
         name of the ball (defaults to the Bluetooth
         advertising name but can be changed), the Bluetooth address and
-        the ID colors the ball blinks when not connected
+        the ID colors the ball blinks when not connected.
         """
         result = self._stable_send(
             _CORE, _CORE_COMMANDS['GET BLUETOOTH INFO'], [], True)
@@ -464,12 +479,32 @@ class Sphero(threading.Thread):
         """
         If successful the response.data will contains a
         PowerState tuple with the following fields in this order.
-            recVer: set to 1
-            powerState: 1 = Charging, 2 = OK, 3 = Low, 4 = Critical
-            batt_voltage: current battery voltage in 100ths of a volt
-            num_charges: number of recharges in the lilfe of this sphero
-            time_since_chg: seconds Awake
-        other wise it contains `None`
+
+            `recVer`: set to 1
+
+            `powerState`: 1 = Charging, 2 = OK, 3 = Low, 4 = Critical
+
+            `batt_voltage`: current battery voltage in 100ths of a volt
+
+            `num_charges`: number of recharges in the lilfe of this sphero
+
+            `time_since_chg`: seconds Awake
+        `
+
+        ### Usage:
+
+            #!python
+            from spheropy.Sphero import Sphero
+
+            with Sphero("Sphero-YWY", "68:86:E7:07:59:71") as s:
+                response = s.get_power_state()
+                if response.success:
+                    power = response.data
+                    print("power_state: {}".format(power.power_state))
+                    print("Voltage: {}".format(power.batt_voltage))
+                    print("Number Charges: {}".format(power.num_charges))
+                    print("Time Since Charge: {}".format(power.time_since_chg))
+
         """
         reply = self._stable_send(
             _CORE, _CORE_COMMANDS['GET POWER STATE'], [], True)
@@ -481,8 +516,8 @@ class Sphero(threading.Thread):
 
     def set_power_notification(self, setting, response=False):
         """
-        Sets Async power notification messages to be sent. To access the notifications register
-        a power_notfiation callback
+        Sets Async power notification messages to be sent. To access the notifications register a power_notfiation callback. Notifications
+        are sent every 10 seconds
 
         The returned Response object's data field will be empty,
         but if `response` is set to `True`, it's success field
@@ -572,7 +607,7 @@ class Sphero(threading.Thread):
         Most system counters, process flags, and system states are decoded
         into human readable ASCII.
 
-        If successful the Response Object's data field will contain an ASCII message
+        If successful the Response Object's data field will contain an ASCII message.
         """
         event = None
         with self._response_lock:
@@ -643,7 +678,12 @@ class Sphero(threading.Thread):
     def set_heading(self, heading, response=False):
         """
         Sets the spheros heading in degrees,
-        heading must range between 0 to 359
+        heading must range between 0 to 359. This should move the
+        back tail light.
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         if heading < 0 or heading > 359:
             return Response(False, "heading must be between 0 and 359")
@@ -657,16 +697,21 @@ class Sphero(threading.Thread):
         """
         This turns on or off the internal stabilization of Sphero,
         the IMU is used to match the ball's orientation to its set points.
-        An error is returned if the sensor network is dead;
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         flag = 0x01 if stablize else 0x00
         return self._stable_send(_SPHERO, _SPHERO_COMMANDS['SET STABILIZATION'], [flag], response)
 
     def set_rotation_rate(self, rate, response=False):
         """
-        sets the roation rate sphero will use to meet new heading commands
-        Lower value offers better control, with a larger turning radius
-        rate should be in degrees / sec, above 199 the maxium value is used(400 degrees / sec)
+        DOESN't WORK
+        This sets the roation rate sphero will use to meet new heading commands
+        Lower value offers better control, with a larger turning radius.
+        The rate should be in degrees / sec,
+        anythin above 199 the maxium value is used(400 degrees / sec)
         """
         # TODO returns unknown command
         if rate < 0:
@@ -680,9 +725,9 @@ class Sphero(threading.Thread):
 
     def get_chassis_id(self):
         """
-        Returns the Chassis ID,
+        Returns the Chassis ID as an int.
         """
-        response = self._send(
+        response = self._stable_send(
             _SPHERO, _SPHERO_COMMANDS['GET CHASSIS ID'], [], True)
 
         if response.success:
@@ -693,7 +738,25 @@ class Sphero(threading.Thread):
 
     def set_data_stream(self, stream_settings, frequency, packet_count=0, response=False):
         """
-        Sets data stream options
+        Sets data stream options, where `stream_settings` is a DataStreamManager object,
+        and `frequency` how often you want to recieve data and `packet_count` indicates
+        the number of packets you want to recieve, set to zero for unlimited streaming.
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
+
+        ### Usage:
+
+            #!python
+            from spheropy.Sphero import Sphero
+            from spheropy.DataStream import DataStreamManager
+
+            dsm = DataStreamManager()
+            dsm.acc = True
+
+            with Sphero("Sphero-YWY", "68:86:E7:07:59:71") as s:
+                s.set_data_stream(dsm, 10 packet_count=2)
         """
         self._data_stream = stream_settings.copy()
         divisor = int_to_bytes(int(400.0 / frequency), 2)
@@ -715,10 +778,16 @@ class Sphero(threading.Thread):
 
     def start_collision_detection(self, x_threshold, x_speed, y_threshold, y_speed, dead=1000, response=False):
         """
-        Starts, collision detection, threshold values represent the max threshold,
-        and speed is added to thersholds ranged by the spheros speed,
-        dead is post - collision dead time,
+        Starts collision detection. `Threshold` values represent the max threshold,
+        and `speed` is added to the thresholds to rang detection by the spheros speed,
+        `dead` is the minimum time between detections
         in ms. all data must be in the range 0...255
+
+        For more infomation see Collision Detection pdf
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         method = 0x01
         dead = int(dead / 10)
@@ -728,12 +797,30 @@ class Sphero(threading.Thread):
         """
         Stops collision detection
         """
-        return self._send(_SPHERO, _SPHERO_COMMANDS['SET COLLISION DETECT'], [0, 0, 0, 0, 0, 0], response)
+        return self._stable_send(_SPHERO, _SPHERO_COMMANDS['SET COLLISION DETECT'], [0, 0, 0, 0, 0, 0], response)
 
     def set_color(self, red, green, blue, default=False, response=False):
         """
-        Sets the color of ther sphero given rgb conbonants between 0 and 255,
-        if default is true, sphero will default to that color when first connected
+        Sets the color of the sphero given rgb components between 0 and 255,
+        if `default` is true, sphero will default to that color when first connected
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
+
+        ### Usage:
+
+            #!python
+            from time import sleep
+            from spheropy.Sphero import Sphero
+
+            with Sphero("Sphero-YWY", "68:86:E7:07:59:71") as s:
+                s.set_color(255, 0, 0)
+                sleep(1)
+                s.set_color(0, 255, 0)
+                sleep(1)
+                s.set_color(0, 0, 255)
+
         """
         red = int_to_bytes(red, 1)
         blue = int_to_bytes(blue, 1)
@@ -744,7 +831,11 @@ class Sphero(threading.Thread):
 
     def set_back_light(self, brightness, response=False):
         """
-        Controls the brightness of the back LED, non persistant
+        Controls the brightness of the back LED, non persistent
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         brightness = int_to_bytes(brightness, 1)
         return self._stable_send(
@@ -752,9 +843,23 @@ class Sphero(threading.Thread):
 
     def get_color(self):
         """
-        returns the default sphero color, may not be the current color shown
+        If sucessful `response.data` contains the sphero default
+        Color, may not be the current color shown.
+
+        ### Usage:
+
+            #!python
+            from spheropy.Sphero import Sphero
+
+            with Sphero("Sphero-YWY", "68:86:E7:07:59:71") as s:
+                response = s.get_color()
+                if response.success:
+                    color = response.data
+                    print("r: {}  b: {}  g: {}".format(color.r, color.b, color.g))
+
         """
-        response = self._send(_SPHERO, _SPHERO_COMMANDS['GET COLOR'], [], True)
+        response = self._stable_send(
+            _SPHERO, _SPHERO_COMMANDS['GET COLOR'], [], True)
         if response.success:
             parse = struct.unpack_from('>BBB', buffer(response.data))
             return Response(True, Color._make(parse))
@@ -763,30 +868,49 @@ class Sphero(threading.Thread):
 
     def roll(self, speed, heading, fast_rotate=False, response=False):
         """
-        commands the sphero to move
+        Commands the sphero to move. `speed` ranges from 0..255, while `heading` is
+        in degrees from 0..359, 0 is strait, 90 is to the right, 180 is back and
+        270 is to the left. When `fast_rotate` is set to True sphero will rotate as
+        quickly as possible to given heading regardless of speed.
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         gobit = [0x02] if fast_rotate else [0x01]
         speed = int_to_bytes(speed, 1)
         heading = int_to_bytes(heading, 2)
-        return self._send(_SPHERO, _SPHERO_COMMANDS['ROLL'], speed + heading + gobit, response)
+        return self._stable_send(_SPHERO, _SPHERO_COMMANDS['ROLL'], speed + heading + gobit, response)
 
     def stop(self, response=False):
         """
-        Tells the Shero to stop
+        Commands the Shero to stop.
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         return self._stable_send(_SPHERO, _SPHERO_COMMANDS['ROLL'], [0, 0, 0, 0], response)
 
     def boost(self, activate, response=True):
         """
-        turns on boost
+        Activates or deactivates boost, depending on the truth value of `activate`.
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         activate = 0x01 if activate else 0x00
         return self._stable_send(_SPHERO, _SPHERO_COMMANDS['BOOST'], [activate], response)
 
     def set_raw_motor_values(self, left_value, right_value, response=False):
         """
-        allows direct controle of the motors
-        both motor values hsould be MotorValue tuple
+        Allows direct controle of the motors
+        both motor values should be MotorValue tuple
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         lmode = left_value.mode.value
         lpower = left_value.power
@@ -795,13 +919,19 @@ class Sphero(threading.Thread):
         if outside_range(lpower, 0, 255) or outside_range(rpower, 0, 255):
             raise SpheroException("Values outside of range")
         data = [lmode, lpower, rmode, rpower]
-        return self._send(_SPHERO, _SPHERO_COMMANDS['SET RAW MOTOR'], data, response)
+        return self._stable_send(_SPHERO, _SPHERO_COMMANDS['SET RAW MOTOR'], data, response)
 
     def set_motion_timeout(self, timeout, response=False):
         """
-        This sets the ultimate timeout for the last motion command to keep Sphero from rolling away
+        This sets the ultimate timeout for the last motion command
+        to keep Sphero from rolling away
         timeout is in miliseconds and defaults to 2000
-        must be set in permanent option flags
+        for this to be in effect motion timeout must be
+        in must be set in permanent options
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         if self._outside_range(timeout, 0, 0xFFFF):
             raise SpheroException("Timeout outside of valid range")
@@ -811,16 +941,30 @@ class Sphero(threading.Thread):
     def set_permanent_options(self, options, response=False):
         """
         Set Options, for option information see PermanentOptionFlag docs.
-        Options persist across power cycles
+        Options persist across power cycles. `options` is a Permanent Option Object
 
-        @Param a permanentOption Object
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
+
+        ### Usage:
+
+            #!python
+            from spheropy.Sphero import Sphero
+            from spheropy.Options import PermanentOptions
+
+            po = PermanentOptions()
+            po.set_light_wakeup_sensitivity= True
+            with Sphero("Sphero-YWY", "68:86:E7:07:59:71") as s:
+                s.set_permanent_options(po)
+
         """
         options = int_to_bytes(options.bitflags, 8)
         return self._stable_send(_SPHERO, _SPHERO_COMMANDS['SET PERM OPTIONS'], options, response)
 
     def get_permanent_options(self):
         """
-        returns a teh Permenent Options of teh sphero
+        If successful `result.data` contains the Permenent Options of the sphero
         """
         result = self._stable_send(
             _SPHERO, _SPHERO_COMMANDS['GET PERM OPTIONS'], [], True)
@@ -834,16 +978,21 @@ class Sphero(threading.Thread):
 
     def set_stop_on_disconnect(self, value=True, response=False):
         """
-        Sets sphero to stop on disconnect, this is a one_shot, so it must be reset on reconnect
-        set value to false to turn off behavior
+        Sets sphero to stop on disconnect, this is a one_shot, so it must be reset on reconnect.
+
+        Set `value` to false to turn off behavior.
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         value = 1 if value else 0
-        return self._send(_SPHERO, _SPHERO_COMMANDS['SET TEMP OPTIONS'], [
+        return self._stable_send(_SPHERO, _SPHERO_COMMANDS['SET TEMP OPTIONS'], [
             0, 0, 0, value], response)
 
     def will_stop_on_disconnect(self):
         """
-        returns if the sphero will stop when it is disconnected
+        Returns if the sphero will stop when it is disconnected.
         """
         result = self._stable_send(
             _SPHERO, _SPHERO_COMMANDS['GET TEMP OPTOINS'], [], True)
@@ -855,36 +1004,110 @@ class Sphero(threading.Thread):
 
     def register_sensor_callback(self, func):
         """
-        register a function to call whena sensor message is recieved
-        func must be callable
-        it will be started in its own thread
+        Register a function to call when a sensor message is recieved.
+        `func` must be callable and it will be started in its own thread
+        as not to block the recieve loop.
+
+        ### Usage:
+
+            #!python
+            from time import sleep
+            from spheropy.Sphero import Sphero
+
+            dsm = DataStreamManager()
+            dsm.acc = True
+            dsm.odom = True
+
+            #assume acc and odom sensor messages have be requested
+            def callback(sensor_data):
+                #sensor_data will be an array of dictionaries where
+                #each item is a frame sent by the sphero
+                for  frames in sensor_data:
+                    print(frames['acc'])
+                    print(frames['odom'])
+
+            with Sphero("Sphero-YWY", "68:86:E7:07:59:71") as s:
+                s.register_sensor_callback(callback)
+                s.set_data_stream(dsm, 10 packet_count=2)
+                # callback will be called twice
+                sleep(1) # so data will be recieved before exit
+
         """
         assert callable(func)
         self._sensor_callback = func
 
     def register_power_callback(self, func):
         """
-        register a function to call when an async power notification is recieved
-        func must be callable
-        it will be started in its own thread
+        Register a function to call when an async power notification is recieved. `func` must be callable and it will be started in it's own thread. The call back will recieve an integer with:
+
+        1 = charging
+
+        2 = OK
+
+        3 = Low
+
+        4 = Critical 
+
+        ### Usage:
+
+            #!python
+            import time
+            from sphropy.Sphero import Sphero
+
+            def callback(notification):
+                print(notification)
+
+            with Sphero("Sphero-YWY", "68:86:E7:07:59:71") as s:
+                s.register_power_callback(callback)
+                s.set_power_notification(True)
+                time.sleep(20)
+
         """
         assert callable(func)
         self._power_callback = func
 
     def register_collision_callback(self, func):
         """
-        registers a callback function for asyn collision notifications
-        func must be callable
-        it's started in its own thread
+        Registers a callback function for asyn collision notifications.
+        `func` must be callable and it is started in it's own thread
+
+        ### Usage:
+
+            #!python
+            import time
+            from spheropy.Sphero import Sphero
+
+            def callback(data):
+                #data will be a CollisionMsg
+                print(data.x)
+                print(data.y)
+                print(data.axis)
+                print(data.speed)
+                print(data.timestamp)
+
+            with Sphero("Sphero-YWY", "68:86:E7:07:59:71") as s:
+                s.register_collision_callback(callback)
+                s.start_collision_detection(100, 50, 100, 50)
+                time.sleep(10)
+                s.stop_collision_detection()
+
         """
         assert callable(func)
         self._collision_callback = func
 
     def _power_notification(self, notification):
+        """
+        Parses a power notification and calls the callback
+        """
         parsed = struct.unpack_from('B', buffer(notification))
         self._power_callback(parsed[0])
 
     def _forward_L1_diag(self, data):
+        """
+        This is used to forwrard the L1 diagnostic call. It
+        is treated differently becuase it is sent as an async message
+        even though it is in response to a system call
+        """
         event = None
         with self._response_lock:
             self._responses['L1'] = str(data)
@@ -894,6 +1117,9 @@ class Sphero(threading.Thread):
         event.set()
 
     def _sensor_data(self, data):
+        """
+        parses sensor data and forwards it to registered callback
+        """
         if self._data_stream is None:
             self.stop_data_stream()
             return
@@ -901,6 +1127,10 @@ class Sphero(threading.Thread):
         self._sensor_callback(parsed)
 
     def _collision_detect(self, data):
+        """
+        Parses collision events and calls teh callback
+        """
+
         fmt = ">3hB2HbI"
         unpacked = struct.unpack_from(fmt, buffer(data))
 
@@ -910,5 +1140,5 @@ class Sphero(threading.Thread):
                               y_list, unpacked[4], unpacked[5], unpacked[6], unpacked[7])
         self._collision_callback(parsed)
 
-    def run(self):
-        self._recieve_loop()
+    def start(self):
+        self._recieve_thread.start()

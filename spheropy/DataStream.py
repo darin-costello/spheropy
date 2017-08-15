@@ -1,5 +1,5 @@
 """
-Tools for configuring and parsing sphero async data stream
+Tools for configuring and parsing sphero async data stream.
 """
 
 from collections import namedtuple
@@ -67,7 +67,7 @@ class DataStreamManager(object):
     """
     To be used to manage what data the sphero streams back.
     Currently it only supports setting all of a group at once,
-    so it isn't possible to request only z accelerometer.
+    so it isn't possible to request only one dimension of any sensor reading.
     Anything not marked raw has been filtered by the sphero.
 
     All data members should be set to a boolean values, with
@@ -146,7 +146,7 @@ class DataStreamManager(object):
         """
         Raw accelerator data
 
-        Data tuple has x,y, z and values
+        Data tuple has x, y, and z values.
         """
         return bool(self._mask1 & _ACC_RAW_MASK)
 
@@ -159,7 +159,7 @@ class DataStreamManager(object):
         """
         Raw Gyroscope data
 
-        Data tuple has x,y, and z values
+        Data tuple has x, y, and z values.
         """
         return bool(self._mask1 & _GYRO_RAW_MASK)
 
@@ -172,7 +172,7 @@ class DataStreamManager(object):
         """
         Raw motor EMF data
 
-        Data tuple has right and left values
+        Data tuple has right and left values.
         """
 
         return bool(self._mask1 & _MOTOR_EMF_RAW_MASK)
@@ -186,7 +186,7 @@ class DataStreamManager(object):
         """
         Raw Motor pwm data
 
-        Data tuple has right and left values
+        Data tuple has right and left values.
         """
         return bool(self._mask1 & _MOTOR_PWM_RAW_MASK)
 
@@ -199,7 +199,7 @@ class DataStreamManager(object):
         """
         Imu data, filtered
 
-        Data tuple has pitch, roll, and yaw values
+        Data tuple has pitch, roll, and yaw values.
         """
         return bool(self._mask1 & _IMU_ANGLE_MASK)
 
@@ -212,7 +212,7 @@ class DataStreamManager(object):
         """
         Accelerometer, filtered
 
-        Data tuple has x y and z values
+        Data tuple has x y and z values.
         """
         return bool(self._mask1 & _ACC_MASK)
 
@@ -225,7 +225,7 @@ class DataStreamManager(object):
         """
         Gyroscope, filtered
 
-        Data tuple has x y and z values
+        Data tuple has x, y, and z values.
         """
         return bool(self._mask1 & _GYRO_MASK)
 
@@ -238,7 +238,7 @@ class DataStreamManager(object):
         """
         Motor EMF, filtered
 
-        Data tuple has left and right vlaues
+        Data tuple has left and right values.
         """
         return bool(self._mask1 & _MOTOR_EMF_MASK)
 
@@ -251,7 +251,7 @@ class DataStreamManager(object):
         """
         Orientation in Quaternion
 
-        Data tuple has x, y, z, and w values
+        Data tuple has x, y, z, and w values.
         """
         return bool(self._mask2 & _QUATERNION_MASK)
 
@@ -264,7 +264,7 @@ class DataStreamManager(object):
         """
         Odomoter
 
-        Data tuple has x and y values
+        Data tuple has x and y values.
         """
         return bool(self._mask2 & _ODOM_MASK)
 
@@ -275,7 +275,7 @@ class DataStreamManager(object):
     @property
     def accel_one(self):
         """
-        Data tuple has a single value between 0 and 8000
+        Data tuple has a single value between 0 and 8000.
         """
         return bool(self._mask2 & _ACCEL_ONE_MASK)
 
@@ -288,7 +288,8 @@ class DataStreamManager(object):
         """
         Velocity
 
-        Data tuple has x and y values"""
+        Data tuple has x and y values.
+        """
         return bool(self._mask2 & _VEL_MASK)
 
     @velocity.setter
@@ -300,7 +301,7 @@ class DataStreamManager(object):
         Parses the data stream given from the sphero and
         returns the result as an array of dictionarys.
 
-        Each dictionary is a differnt data frame as sent from the sphero.
+        Each dictionary is a different data frame as sent from the sphero.
         """
         expected_items = (len(self._format) - 1) * 2
         assert len(data) == expected_items * self.number_frames
@@ -325,9 +326,8 @@ class DataStreamManager(object):
 
     def update(self):
         """
-        updates internals variables to ensure data integrety.
+        Updates internals variables to ensure data integrety.
         This is called after each property is set.
-
         """
         self._update_format()
         self._update_list()
