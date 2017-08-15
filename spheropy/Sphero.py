@@ -1,5 +1,11 @@
 """
-Tools for controlling a Sphero 2.0
+Tools for controlling a Sphero 2.0. Sphero is the main class, all others define
+parameter or return classes.
+
+Most sphero commands return a Response object, that has two data fields. 
+`response.success` indicates if the operation was successful, and
+`response.data` is any returned data, when appropriate.
+
 """
 
 from __future__ import print_function
@@ -109,17 +115,21 @@ class Sphero(threading.Thread):
     """
     Class representing a sphero. Can be used in a `with` block or explicitly
 
+    All direct sphero commands will return a `Response` object. where `response.success`
+    indicates if the command ran successfully. and `response.data` will contain the
+    data of the response. Other returns will be specified
+
     ### Usage:
 
         #!python
         # explicit managment
-        s = Sphero("name", "address")
+        s = Sphero("Sphero-YWY", "68:86:E7:07:59:71")
         s.connect()
         s.roll(50, 0)
         s.exit()
 
         # context manager
-        with Sphero("name", "address") as s:
+        with Sphero("Sphero-YWY", "68:86:E7:07:59:71") as s:
             s.roll(50, 0)
     """
 # Static Methods
@@ -381,22 +391,35 @@ class Sphero(threading.Thread):
             tries += 1
             success = reply.success
         return reply
-# _CORE COMMANDS
+# CORE COMMANDS
 
-    def ping(self, response=True):
+    def ping(self):
         """
-        The Ping command is used to verify both a solid data link with the Client
+        The Ping command is used to verify both a solid data link with the caller
         and that Sphero is awake and dispatching commands.
-        returns true if a response is recieved and was requested, false otherwise
+
+        A Response tuple is returned with response.success indicating if a response
+        is received back fromt he sphero, there is no accompanying data
+
+        # Usage
+
+            #!python
+            with Sphero("Sphero-YWY", "68:86:E7:07:59:71") as s:
+                response = s.ping()
+                print(response.success)
         """
-        reply = self._send(_CORE, _CORE_COMMANDS['PING'], [], response)
+        reply = self._stable_send(_CORE, _CORE_COMMANDS['PING'], [], True)
         return reply
 
     def get_versioning(self):
         """
-        Returns a tuple of the bytes of the versioning info see Sphero api docs for more info.
+        A Response tuple is returned, if `response.success == True`,
+        `response.data` will contain a tuple of the bytes of the versioning info.
+
+        see Sphero api docs for more info.
         """
-        reply = self._send(_CORE, _CORE_COMMANDS['GET VERSIONING'], [], True)
+        reply = self._stable_send(
+            _CORE, _CORE_COMMANDS['GET VERSIONING'], [], True)
         if reply.success:
             parsed = struct.unpack_from(">8B", buffer(reply.data))
             return Response(True, parsed)
@@ -409,16 +432,22 @@ class Sphero(threading.Thread):
         service below. Names are clipped at 48 characters in length to support UTF - 8 sequences
         you can send something longer but the extra will be discarded.
         This field defaults to the Bluetooth advertising name.
+
+        The returned Response objects data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
-        return self._send(_CORE, _CORE_COMMANDS['SET NAME'], name, response)
+        return self._stable_send(_CORE, _CORE_COMMANDS['SET NAME'], name, response)
 
     def get_bluetooth_info(self):
         """
-        This returns a structure containing the textual name of the ball(defaults to the Bluetooth
+        If successful the returned Response Object's data field
+        is a BluetoothInfo object containing the textual
+        name of the ball (defaults to the Bluetooth
         advertising name but can be changed), the Bluetooth address and
         the ID colors the ball blinks when not connected
         """
-        result = self._send(
+        result = self._stable_send(
             _CORE, _CORE_COMMANDS['GET BLUETOOTH INFO'], [], True)
         if result.success:
             fmt = ">16s12sx3c"
@@ -433,28 +462,31 @@ class Sphero(threading.Thread):
 
     def get_power_state(self):
         """
-        If successful returns a PowerState tuple with the following fields in this order.
+        If successful the response.data will contains a
+        PowerState tuple with the following fields in this order.
             recVer: set to 1
             powerState: 1 = Charging, 2 = OK, 3 = Low, 4 = Critical
             batt_voltage: current battery voltage in 100ths of a volt
             num_charges: number of recharges in the lilfe of this sphero
             time_since_chg: seconds Awake
-        other wise it returns None
-        function will try 'number_tries' times to get a response,
-        and will wait up to 'response_time_out 'seconds for each response.
-        thus it may block for up to 'response_time_out X number_tries' seconds
+        other wise it contains `None`
         """
         reply = self._stable_send(
             _CORE, _CORE_COMMANDS['GET POWER STATE'], [], True)
         if reply.success:
             parsed_answer = struct.unpack_from('>BBHHH', buffer(reply.data))
-            return PowerState._make(parsed_answer)
+            return Response(True, PowerState._make(parsed_answer))
         else:
-            return None
+            return reply
 
     def set_power_notification(self, setting, response=False):
         """
-        Sets Async power notification messages to be sent
+        Sets Async power notification messages to be sent. To access the notifications register
+        a power_notfiation callback
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         flag = 0x01 if setting else 0x00
         reply = self._stable_send(
@@ -464,27 +496,35 @@ class Sphero(threading.Thread):
     def sleep(self, wakeup_time, response=False):
         """
         This command puts Sphero to sleep immediately.
-        wakeup_time: The number of seconds for Sphero to sleep for and then automatically reawaken.
-        Zero does not program a wakeup interval, so he sleeps forever.
-        Breaks the connection
+        The sphero will automaticall reawaken after `wakeup_time` seconds.
+        Zero does not program a wakeup interval, so it sleeps forever.
+
+        The Sphero must be reconnected after this function is called. However,
+        most settings are preserved.
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         if wakeup_time < 0 or wakeup_time > 0xffff:
-            return False
+            return Response(False, None)
         big = wakeup_time >> 8
         little = (wakeup_time & 0x00ff)
-        reply = self._send(_CORE, _CORE_COMMANDS['SLEEP'], [
+        reply = self._stable_send(_CORE, _CORE_COMMANDS['SLEEP'], [
             big, little, 0, 0, 0], response)
-
+        self.close()
         return reply
 
     def get_voltage_trip_points(self):
         """
-        This returns the voltage trip points for what Sphero considers Low and Critical battery.
+        If successful the Response Object's data field contains a tuple of the
+        voltage trip points for what Sphero considers Low and Critical battery.
         The values are expressed in 100ths of a volt,
         so the defaults of 7.00V and 6.50V respectively are returned as
         700 and 650.
         """
-        reply = self._send(_CORE, _CORE_COMMANDS['GET VOLTAGE TRIP'], [], True)
+        reply = self._stable_send(
+            _CORE, _CORE_COMMANDS['GET VOLTAGE TRIP'], [], True)
         if reply.success:
             parse = struct.unpack_from(">HH", buffer(reply.data))
             return Response(True, parse)
@@ -493,6 +533,7 @@ class Sphero(threading.Thread):
 
     def set_voltage_trip_points(self, low, critical, response=False):
         """
+        DOES NOT WORK
         not implemented
         This assigns the voltage trip points for Low and Critical battery voltages.
         The values are specified in 100ths of a volt and
@@ -504,11 +545,16 @@ class Sphero(threading.Thread):
         assert False
         low = int_to_bytes(low, 2)
         crit = int_to_bytes(critical, 2)
-        return self._send(_CORE, _CORE_COMMANDS['SET VOLTAGE TRIP'], low + crit, response)
+        return self._stable_send(_CORE, _CORE_COMMANDS['SET VOLTAGE TRIP'], low + crit, response)
 
     def set_inactivity_timeout(self, timeout, response=False):
         """
-        Sets inactivity time out. Value must be greater than 60 seconds
+        Sets inactivity time out. Value must be greater than 60 seconds,
+        is preserved across power cycles.
+
+       The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
         if timeout < 0 or timeout > 0xffff:
             return False
@@ -525,13 +571,15 @@ class Sphero(threading.Thread):
         This is a developer - level command to help diagnose aberrant behavior.
         Most system counters, process flags, and system states are decoded
         into human readable ASCII.
+
+        If successful the Response Object's data field will contain an ASCII message
         """
         event = None
         with self._response_lock:
             event = threading.Event()
             self._response_event_lookup['L1'] = event
 
-        self._send(_CORE, _CORE_COMMANDS['L1'], [], False)
+        self._stable_send(_CORE, _CORE_COMMANDS['L1'], [], False)
 
         if event.wait(self._response_time_out * 10):
             response = None
@@ -543,6 +591,7 @@ class Sphero(threading.Thread):
 
     def L2_diag(self):
         """
+        DOES NOT WORK
         This is a developers - only command to help diagnose aberrant behavior.
         It is much less informative than the Level 1 command
         but it is in binary format and easier to parse
@@ -550,14 +599,18 @@ class Sphero(threading.Thread):
         """
 
         assert False
-        return self._send(_CORE, _CORE_COMMANDS['L2'], [], True)
+        return self._stable_send(_CORE, _CORE_COMMANDS['L2'], [], True)
 
     def assign_time(self, time_value, response=False):
         """
-        Sets the internal timer to the given time.
-        this is the time that shows up in a collision message
+        Sets the internal timer to `time_value`. 
+        This is the time that shows up in a collision message.
+
+        The returned Response object's data field will be empty,
+        but if `response` is set to `True`, it's success field
+        will indicate if the command was successful.
         """
-        return self._send(_CORE, _CORE_COMMANDS['ASSIGN TIME'], int_to_bytes(time_value, 4), response)
+        return self._stable_send(_CORE, _CORE_COMMANDS['ASSIGN TIME'], int_to_bytes(time_value, 4), response)
 
     def poll_packet_times(self):
         """
@@ -565,6 +618,8 @@ class Sphero(threading.Thread):
         returns a PacketTime tuple with fields:
         offset: the maximum - likelihood time offset of the Client clock to sphero's system clock
         delay: round - trip delay between client a sphero
+
+        DOESN"T REALLY WORK YET....
         """
         # TODO time 1 gets mangled.
         time1 = int(round(time.time() * 1000))
