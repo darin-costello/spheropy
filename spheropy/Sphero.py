@@ -404,6 +404,10 @@ class Sphero(object):
             tries += 1
             success = reply.success
         return reply
+
+    def is_alive(self):
+        return self._recieve_thread.is_alive() & self.bluetooth.is_connected()
+
 # CORE COMMANDS
 
     def ping(self):
@@ -761,8 +765,8 @@ class Sphero(object):
         self._data_stream = stream_settings.copy()
         divisor = int_to_bytes(int(400.0 / frequency), 2)
         samples = int_to_bytes(self._data_stream.number_frames, 2)
-        mask1 = int_to_bytes(self._data_stream.mask1, 4)
-        mask2 = int_to_bytes(self._data_stream.mask2, 4)
+        mask1 = int_to_bytes(self._data_stream._mask1, 4)
+        mask2 = int_to_bytes(self._data_stream._mask2, 4)
         data = divisor + samples + mask1 + [packet_count] + mask2
         return self._stable_send(_SPHERO, _SPHERO_COMMANDS['SET DATA STRM'], data, response)
 
