@@ -21,6 +21,16 @@ from spheropy.Exception import SpheroException
 from spheropy.Options import PermanentOptions
 from spheropy.Util import nothing, outside_range, int_to_bytes, check_sum, eprint
 
+# Python 3 compatibility
+py3 = False
+import sys
+if sys.version_info > (3,):
+    py3 = True
+    def buffer(something):
+        if isinstance(something,str):
+            return bytes(something,encoding="ascii")
+        return bytes(something)
+
 _MSRP = {  # taken from sphero api docs
     0x00: "OK",  # succeeded
     0x01: "Error",  # non-specific error
@@ -188,7 +198,7 @@ class Sphero(object):
         self._responses = {}
         self._response_time_out = response_time_out
 
-        self._recieve_thread = threading.Thread(target=self._recieve_loop)
+        # self._recieve_thread = threading.Thread(target=self._recieve_loop) # should only be available after connect
 
         self._data_stream = None
         self._asyn_func = {
@@ -231,12 +241,13 @@ class Sphero(object):
         while self.bluetooth.is_connected():
             # state one
             try:
+                # bytearray needs ord
                 packet[0] = 0
                 while packet[0] != _SOP1:
-                    packet[0] = self.bluetooth.receive(1)
+                    packet[0] = ord(self.bluetooth.receive(1))
 
                 # state two
-                packet[1] = self.bluetooth.receive(1)
+                packet[1] = ord(self.bluetooth.receive(1))
                 packet_type = packet[1]
                 if packet_type == _ACKNOWLEDGMENT:  # Sync Packet
                     self._handle_acknowledge()
@@ -377,12 +388,26 @@ class Sphero(object):
                     return self._responses[seq_number]
         return Response(True, '')
 
-    def connect(self):
+    def connect(self, retries = 5):
         """
         Establishes a connection and
         returns a boolean indicating if the connection was successful.
+        Retries: how often it should be tried before raising an error
         """
-        return self.bluetooth.connect()
+        while retries > 0:
+            res = None
+            try:
+                res = self.bluetooth.connect()
+            except:
+                res = None
+            if not res:
+                retries -= 1
+            else:
+                break
+        if not res:
+            raise ValueError("Could not connect to device.")
+        self._recieve_thread = threading.Thread(target=self._recieve_loop)
+        return res
 
     def disconnect(self):
         """
@@ -472,7 +497,7 @@ class Sphero(object):
             fmt = ">16s12sx3c"
             temp_tup = struct.unpack_from(fmt, buffer(result.data))
             name = temp_tup[0]
-            name = name[:name.find('\x00')]
+            name = name[:name.find('\x00' if not py3 else b'\x00')] # python3 needs byte object
             named_tuple = BluetoothInfo(
                 name, temp_tup[1], (temp_tup[2], temp_tup[3], temp_tup[4]))
             return Response(True, named_tuple)
