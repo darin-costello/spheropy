@@ -256,8 +256,10 @@ class Sphero(object):
                     self._handle_async()
                 else:
                     eprint("Malformed Packet")
-            except SpheroException:
-                return
+            except Exception as error:
+                continue
+                #eprint(error)
+                #return
 
     def _handle_acknowledge(self):
         """
@@ -407,6 +409,7 @@ class Sphero(object):
         if not res:
             raise ValueError("Could not connect to device.")
         self._recieve_thread = threading.Thread(target=self._recieve_loop)
+        self.bluetooth.set_timeout(5)
         return res
 
     def disconnect(self):
@@ -414,6 +417,7 @@ class Sphero(object):
         Closes the connection to the sphero.
         If sphero is not connected the call has no effect.
         """
+        # self.bluetooth.set_timeout(5)
         self.bluetooth.close()
 
     def _stable_send(self, did, cid, data, response):
