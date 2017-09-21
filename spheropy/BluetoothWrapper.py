@@ -113,7 +113,7 @@ class BluetoothWrapper(object):
         `num_bytes` refers to the number of bytes to read the amount returned may be less
 
         When sphero is disconnected, and all data is read, the empty string is returned.
-        Blocks until at least one byte is available.
+        Blocks until timeout or if timeout is None at least one byte is available.
         """
         if self._socket is None:
             raise BluetoothException("Device is not connected")
@@ -123,9 +123,8 @@ class BluetoothWrapper(object):
                 self.close()
             return data
         except bluetooth.BluetoothError as error:
-            self.close()
             raise BluetoothException(
-                "Unable to receive data due to bluetooth error: " + error.message)
+                "Unable to receive data due to bluetooth error: " + error)
 
     def close(self):
         """
@@ -134,3 +133,6 @@ class BluetoothWrapper(object):
         if self._socket is not None:
             self._socket.close()
             self._socket = None
+
+    def set_timeout(self,timeout):
+        self._socket.settimeout(timeout)
